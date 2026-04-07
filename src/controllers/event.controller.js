@@ -378,3 +378,38 @@ export const getHostGifts = async (req, res, next) => {
         res.status(200).json({ success: true, data: gifts });
     } catch (err) { next(err); }
 };
+
+export const reportEvent = async (req, res, next) => {
+    try {
+        const { eventId } = req.params;
+        const { reason, details } = req.body;
+
+        const event = await Event.findById(eventId);
+        if (!event) return res.status(404).json({ success: false, message: 'Event not found' });
+
+        const { Report } = await import('../models/Report.js');
+        const existingReport = await Report.findOne({ reportedBy: req.user.id, eventId });
+        if (existingReport) {
+            return res.status(400).json({ success: false, message: 'You have already reported this event' });
+        }
+
+        await Report.create({
+            reportedBy: req.user.id,
+            eventId,
+            reason,
+            details
+        });
+
+        event.reportCount = (event.reportCount || 0) + 1;
+        
+        if (event.reportCount >= 5 && event.status === 'LIVE') {
+            event.status = 'PAUSED';
+        }
+
+        await event.save();
+        res.status(201).json({ success: true, message: 'Report submitted successfully' });
+
+    } catch (error) {
+        next(error);
+    }
+};
