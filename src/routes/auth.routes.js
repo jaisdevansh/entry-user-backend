@@ -175,6 +175,11 @@ router.get('/callback/google',
                 { $set: { refreshToken } }
             );
 
+            // ⚡ CRITICAL: Clear cached profile data for this user to prevent stale data
+            const { cacheService } = await import('../services/cache.service.js');
+            await cacheService.delete(cacheService.formatKey('profile_v2', user._id.toString()));
+            console.log('[DEBUG] Cleared cached profile for user:', user._id.toString());
+
             const params = new URLSearchParams({
                 token,
                 refreshToken,  // ⚡ FIX: Include refresh token in callback
