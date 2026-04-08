@@ -12,11 +12,14 @@ import { AppRating } from '../models/AppRating.js';
 export const getProfile = async (req, res, next) => {
     try {
         const { id, role } = req.user;
+        console.log('[getProfile] Request from user:', { id, role });
+        
         const cacheKey = cacheService.formatKey('profile_v2', id);
         
         // ⚡ ULTRA FAST: Check cache first
         const cached = await cacheService.get(cacheKey);
         if (cached) {
+            console.log('[getProfile] Returning cached profile for:', id);
             res.set('Cache-Control', 'private, max-age=180');
             return res.status(200).json({ success: true, data: typeof cached === 'string' ? JSON.parse(cached) : cached });
         }
@@ -25,6 +28,7 @@ export const getProfile = async (req, res, next) => {
 
         // ⚡ OPTIMIZED: Direct lookup based on role (no fallback needed 99% of time)
         const normalizedRole = role?.toUpperCase();
+        console.log('[getProfile] Looking up user with role:', normalizedRole);
         
         // Select only essential fields (exclude heavy arrays)
         const SELECT = '-password -refreshToken -__v -createdAt -updatedAt';
@@ -41,6 +45,7 @@ export const getProfile = async (req, res, next) => {
 
         // Only do fallback if absolutely necessary (rare case)
         if (!user) {
+            console.log('[getProfile] Primary lookup failed, trying fallback for:', id);
             const [admin, host, staff, regularUser] = await Promise.all([
                 Admin.findById(id).select(SELECT).lean(),
                 Host.findById(id).select(SELECT).lean(),
@@ -48,11 +53,23 @@ export const getProfile = async (req, res, next) => {
                 User.findById(id).select(SELECT).lean()
             ]);
             user = admin || host || staff || regularUser;
+            if (user) {
+                console.log('[getProfile] Found user in fallback, actual role:', user.role);
+            }
         }
 
         if (!user) {
+            console.error('[getProfile] User not found:', id);
             return res.status(404).json({ success: false, message: 'User not found' });
         }
+
+        console.log('[getProfile] Returning profile:', { 
+            id: user._id, 
+            name: user.name, 
+            email: user.email,
+            role: user.role,
+            username: user.username 
+        });
 
         // Map Host schema (firstName/lastName) to unified (name/fullName)
         if (user && !user.name && user.firstName) {
