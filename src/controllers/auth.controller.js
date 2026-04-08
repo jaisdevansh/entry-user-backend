@@ -663,42 +663,29 @@ export const completeOnboarding = async (req, res, next) => {
 export const googleLogin = async (req, res, next) => {
     try {
         const { access_token } = req.body;
-        console.log('\n--- [BACKEND DEBUG] Google Login Attempt ---');
-        console.log('[DEBUG] Access Token (first 15 chars):', access_token ? access_token.substring(0, 15) + '...' : 'NONE');
         
         if (!access_token) {
-            console.error('[DEBUG] Validation Failure: No access_token provided in request body');
             return res.status(400).json({ success: false, message: 'Google access_token required' });
         }
 
-        // Verify with Google and get profile
-        console.log('[DEBUG] Calling Google UserInfo endpoint...');
         const googleRes = await fetch(
             `https://www.googleapis.com/oauth2/v3/userinfo?access_token=${access_token}`
         );
 
         if (!googleRes.ok) {
-            const errBody = await googleRes.text();
-            console.error('[DEBUG] Google Verification FAILED');
-            console.error('[DEBUG] Status Code:', googleRes.status);
-            console.error('[DEBUG] Error Body:', errBody);
             return res.status(401).json({ success: false, message: 'Invalid Google token' });
         }
 
         const profile = await googleRes.json();
         const { email, name, picture, sub: googleId } = profile;
-        console.log('[Backend] Google profile acquired for email:', email);
 
         if (!email) {
-            console.error('[Backend] Google profile missing email');
             return res.status(401).json({ success: false, message: 'Google did not return an email' });
         }
 
         const emailLower = email.toLowerCase();
 
         // 🔒 SECURITY: Google login is ONLY for regular users, not admin/host/staff
-        // Admin/Host/Staff must use their dedicated login flows (OTP or password)
-        console.log('[Backend] Checking if email belongs to User collection only...');
         let user = await User.findOne({ email: { $regex: new RegExp(`^${emailLower}$`, 'i') } });
         
         // 🚨 BLOCK: If email exists in Admin/Host/Staff, reject Google login
@@ -709,7 +696,6 @@ export const googleLogin = async (req, res, next) => {
         ]);
         
         if (adminExists || hostExists || staffExists) {
-            console.error('[Backend] Email belongs to Admin/Host/Staff - Google login not allowed');
             return res.status(403).json({ 
                 success: false, 
                 message: 'This email is registered as Admin/Host/Staff. Please use the appropriate login method.' 
@@ -717,7 +703,6 @@ export const googleLogin = async (req, res, next) => {
         }
 
         if (!user) {
-            // New Google user — auto-provision with username, skip onboarding
             const tempId = new mongoose.Types.ObjectId();
             const referralCode = Math.random().toString(36).substring(2, 8).toUpperCase()
                 + tempId.toString().substring(18, 22).toUpperCase();
@@ -735,14 +720,12 @@ export const googleLogin = async (req, res, next) => {
                 googleId,
                 role: 'user',
                 bio: '',
-                onboardingCompleted: true,   // ✅ Skip onboarding for Google users
+                onboardingCompleted: true,
                 isActive: true,
                 referralCode,
             });
             await user.save();
-            console.log(`[Google Auth] New user created: ${emailLower} | username: ${autoUsername}`);
         } else {
-            // Existing user — update Google fields if missing
             const updates = {};
             if (!user.profileImage && picture) updates.profileImage = picture;
             if (!user.googleId) updates.googleId = googleId;
@@ -773,7 +756,7 @@ export const googleLogin = async (req, res, next) => {
                 profileImage: user.profileImage || picture,
                 hostStatus: user.hostStatus || null,
                 username: user.username || null,
-                onboardingCompleted: true,   // Google users always skip onboarding
+                onboardingCompleted: true,
                 accessToken,
                 refreshToken,
             }

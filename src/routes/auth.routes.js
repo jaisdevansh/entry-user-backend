@@ -41,21 +41,14 @@ passport.use(new GoogleStrategy({
     scope: ['profile', 'email'],
 }, async (accessToken, refreshToken, profile, done) => {
     try {
-        console.log('--- [BACKEND DEBUG] Google Strategy Callback ---');
         const email = profile.emails?.[0]?.value?.toLowerCase();
-        console.log('[DEBUG] Google Email acquired:', email);
         const name  = profile.displayName || '';
         const picture = profile.photos?.[0]?.value || '';
         const googleId = profile.id;
 
-        if (!email) {
-            console.error('[DEBUG] No email found in Google profile');
-            return done(new Error('No email from Google'), null);
-        }
+        if (!email) return done(new Error('No email from Google'), null);
 
         // 🔒 SECURITY: Google login is ONLY for regular users, not admin/host/staff
-        // Admin/Host/Staff must use their dedicated login flows (OTP or password)
-        console.log('[DEBUG] Searching for user in User collection only...');
         let user = await User.findOne({ email: { $regex: new RegExp(`^${email}$`, 'i') } });
         
         // 🚨 BLOCK: If email exists in Admin/Host/Staff, reject Google login
@@ -66,12 +59,10 @@ passport.use(new GoogleStrategy({
         ]);
         
         if (adminExists || hostExists || staffExists) {
-            console.error('[DEBUG] Email belongs to Admin/Host/Staff - Google login not allowed');
             return done(new Error('This email is registered as Admin/Host/Staff. Please use the appropriate login method.'), null);
         }
 
         if (!user) {
-            console.log('[DEBUG] New user! Provisioning with auto-username...');
             const tempId = new mongoose.Types.ObjectId();
             const referralCode = Math.random().toString(36).substring(2, 8).toUpperCase()
                 + tempId.toString().substring(18, 22).toUpperCase();
@@ -89,15 +80,12 @@ passport.use(new GoogleStrategy({
                 googleId,
                 role: 'user',
                 bio: '',
-                onboardingCompleted: true,   // ✅ No onboarding for Google users
+                onboardingCompleted: true,
                 isActive: true,
                 referralCode,
             });
             await user.save();
-            console.log(`[DEBUG] User created: ${email} | username: ${autoUsername}`);
         } else {
-            console.log('[DEBUG] Existing user found. Role:', user.role);
-            // Patch missing fields for existing users
             const updates = {};
             if (!user.profileImage && picture) updates.profileImage = picture;
             if (!user.googleId) updates.googleId = googleId;
@@ -110,7 +98,7 @@ passport.use(new GoogleStrategy({
 
         return done(null, user);
     } catch (err) {
-        console.error('[DEBUG] Strategy Error:', err.message);
+        console.error('[Google Auth] Error:', err.message);
         return done(err, null);
     }
 }));
@@ -119,7 +107,6 @@ passport.use(new GoogleStrategy({
 
 // Step 1: Redirect user to Google login page
 router.get('/google', (req, res, next) => {
-    console.log('--- [BACKEND DEBUG] GET /api/auth/google hit ---');
     const redirectUri = req.query.redirectUri || 'entry-club://auth';
     const state = Buffer.from(JSON.stringify({ redirectUri })).toString('base64');
     passport.authenticate('google', { scope: ['profile', 'email'], session: false, state })(req, res, next);
@@ -128,8 +115,6 @@ router.get('/google', (req, res, next) => {
 // Step 2: Google calls back → generate JWT → deep-link back to app
 router.get('/callback/google',
     (req, res, next) => {
-        console.log('--- [BACKEND DEBUG] Callback hit from Google ---');
-        // Handle failed authentication
         if (req.query.error) {
             let redirectUri = 'entry-club://auth';
             if (req.query.state) {
@@ -144,7 +129,6 @@ router.get('/callback/google',
     },
     async (req, res) => {
         try {
-            console.log('--- [BACKEND DEBUG] Handling Final Callback ---');
             const user = req.user;
             
             let redirectUri = 'entry-club://auth';
@@ -155,45 +139,37 @@ router.get('/callback/google',
                 } catch(e) {}
             }
 
-            if (!user) {
-                console.error('[DEBUG] No user object in request after passport auth');
-                return res.redirect(`${redirectUri}?error=no_user`);
-            }
-
-            console.log('[DEBUG] Generating JWT for user:', user.email);
+            if (!user) return res.redirect(`${redirectUri}?error=no_user`);
             
-            // ⚡ LONG SESSION: Generate tokens with extended expiry (matching regular login)
             const token = jwt.sign(
                 { userId: user._id, role: user.role, hostId: user.hostId || null },
                 process.env.JWT_SECRET || 'supersecretkey123',
-                { expiresIn: '30d' }  // ⚡ 30 days for persistent sessions
+                { expiresIn: '30d' }
             );
             
             const refreshToken = jwt.sign(
                 { userId: user._id },
                 process.env.JWT_REFRESH_SECRET || 'superrefreshsecret123',
-                { expiresIn: '90d' }  // ⚡ 90 days for persistent sessions
+                { expiresIn: '90d' }
             );
             
-            // ⚡ FIX: Save refresh token to database (now properly async)
             await user.constructor.updateOne(
                 { _id: user._id }, 
                 { $set: { refreshToken } }
             );
 
-            // ⚡ CRITICAL: Clear cached profile data for this user to prevent stale data
+            // Clear cached profile data
             const { cacheService } = await import('../services/cache.service.js');
             await cacheService.delete(cacheService.formatKey('profile_v2', user._id.toString()));
-            console.log('[DEBUG] Cleared cached profile for user:', user._id.toString());
 
             const params = new URLSearchParams({
                 token,
-                refreshToken,  // ⚡ FIX: Include refresh token in callback
+                refreshToken,
                 role:                user.role || 'user',
                 name:                user.name || '',
                 email:               user.email || '',
                 profileImage:        user.profileImage || '',
-                onboardingCompleted: 'true',   // ✅ Google users always skip onboarding
+                onboardingCompleted: 'true',
                 hostId:              user.hostId?.toString() || '',
                 username:            user.username || '',
                 phone:               user.phone || '',
@@ -202,14 +178,6 @@ router.get('/callback/google',
             });
 
             const deepLink = `${redirectUri}?${params.toString()}`;
-            console.log('[DEBUG] Redirecting back to app via Deep Link:', deepLink.substring(0, 50) + '...');
-            console.log('[DEBUG] User data being sent:', {
-                name: user.name,
-                email: user.email,
-                profileImage: user.profileImage,
-                username: user.username,
-                userId: user._id.toString()
-            });
             return res.redirect(deepLink);
         } catch (err) {
             console.error('[Google Callback] Error:', err.message);
@@ -230,6 +198,6 @@ router.get('/verifyemail/:token', verifyEmail);
 router.post('/verifyemail', verifyEmail);
 router.post('/logout', protect, logout);
 router.post('/onboarding', protect, completeOnboarding);
-router.post('/google', googleLogin); // Legacy: mobile token-based fallback
+router.post('/google', googleLogin);
 
 export default router;
