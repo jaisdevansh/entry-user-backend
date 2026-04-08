@@ -72,6 +72,10 @@ export const verifyPayment = async (req, res, next) => {
             const numGuests = Number(guestCount) || 1;
             const userId = req.user.id;
 
+            // ── Robust Ticket Type Handling ─────────────────────────────────────
+            // If the frontend sends "VIP Zone (Split)", we want to match "VIP Zone" in the DB.
+            const cleanTicketType = String(ticketType || '').replace(/\s*\(Split\)\s*/i, '').replace(/\s*\(Guest\)\s*/i, '').trim();
+
             // 1. Fetch event first to reliably get hostId (don't trust client)
             const event = await Event.findById(eventId).select('hostId tickets').lean();
             const hostId = clientHostId || event?.hostId;
@@ -86,7 +90,7 @@ export const verifyPayment = async (req, res, next) => {
                 hostId,
                 eventId,
                 serviceId: eventId,
-                ticketType,
+                ticketType: ticketType || 'General Admit',
                 tableId: tableId || (seatIds && seatIds[0]) || null,
                 seatIds: seatIds || [],
                 pricePaid: pricePaid || 0,
@@ -101,11 +105,15 @@ export const verifyPayment = async (req, res, next) => {
             // 2. Background tasks (non-blocking)
             const tasks = [];
 
-            // Atomic sold count update
+            // Atomic sold count update (using cleaned type for match)
             tasks.push(Event.updateOne(
-                { _id: eventId, "tickets.type": ticketType },
+                { _id: eventId, "tickets.type": cleanTicketType },
                 { $inc: { "tickets.$.sold": numGuests } }
-            ));
+            ).then(res => {
+                if (res.modifiedCount === 0) {
+                    console.warn(`[verifyPayment] ⚠️ Sold count NOT updated. Ticket "${cleanTicketType}" not found in Event ${eventId}`);
+                }
+            }).catch(err => console.error('[Event Sold Count Error]', err.message)));
 
             // System notification
             tasks.push(Notification.create({
