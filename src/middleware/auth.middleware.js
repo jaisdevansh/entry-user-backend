@@ -20,7 +20,31 @@ export const protect = async (req, res, next) => {
             return res.status(401).json({ success: false, message: 'Not authorized to access this route', data: {} });
         }
 
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'supersecretkey123');
+        let decoded;
+        try {
+            decoded = jwt.verify(token, process.env.JWT_SECRET || 'supersecretkey123');
+        } catch (jwtError) {
+            // ⚡ PRODUCTION FIX: Handle JWT errors gracefully
+            if (jwtError.name === 'TokenExpiredError') {
+                console.error('[Auth] Token expired at:', jwtError.expiredAt);
+                return res.status(401).json({ 
+                    success: false, 
+                    message: 'Token expired', 
+                    code: 'TOKEN_EXPIRED',
+                    data: {} 
+                });
+            }
+            if (jwtError.name === 'JsonWebTokenError') {
+                console.error('[Auth] Invalid token:', jwtError.message);
+                return res.status(401).json({ 
+                    success: false, 
+                    message: 'Invalid token', 
+                    code: 'INVALID_TOKEN',
+                    data: {} 
+                });
+            }
+            throw jwtError;
+        }
 
         // ⚡ HIGH-PERFORMANCE ROLE & STATUS VALIDATION (Sub-ms via Redis)
         // Correct segments - this catches if a user is deactivated or their role changes
@@ -67,8 +91,37 @@ export const protect = async (req, res, next) => {
         
         next();
     } catch (error) {
-        console.error('[Auth Middleware] Error:', error.message);
-        return res.status(401).json({ success: false, message: 'Token is invalid or expired', data: {} });
+        // ⚡ PRODUCTION FIX: Better error logging
+        const errorDetails = {
+            message: error.message,
+            name: error.name,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        };
+        console.error('[Auth Middleware] Error:', JSON.stringify(errorDetails, null, 2));
+        
+        // Return specific error codes for client handling
+        if (error.name === 'TokenExpiredError') {
+            return res.status(401).json({ 
+                success: false, 
+                message: 'Token expired', 
+                code: 'TOKEN_EXPIRED',
+                data: {} 
+            });
+        }
+        if (error.name === 'JsonWebTokenError') {
+            return res.status(401).json({ 
+                success: false, 
+                message: 'Invalid token', 
+                code: 'INVALID_TOKEN',
+                data: {} 
+            });
+        }
+        return res.status(401).json({ 
+            success: false, 
+            message: 'Authentication failed', 
+            code: 'AUTH_FAILED',
+            data: {} 
+        });
     }
 };
 
