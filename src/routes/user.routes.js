@@ -6,7 +6,7 @@ import {
 } from '../controllers/user.controller.js';
 
 import {
-    getAllEvents, getEventBasic, getEventDetails, getEventTickets, getFloorPlan, bookEvent, getBookedTables, lockSeats, getActiveEvent, getMenuItems, getEventBooking,
+    getAllEvents, getEventBasic, getEventDetails, getEventTickets, getFloorPlan, getEventFull, bookEvent, getBookedTables, lockSeats, getActiveEvent, getMenuItems, getEventBooking,
     getHostMenu, getHostGifts
 } from "../controllers/event.controller.js";
 
@@ -48,6 +48,7 @@ router.put('/bookings/:id/cancel', authorize('user'), cancelBooking);
 
 // --- EVENTS (Discovery) ---
 router.get('/events', getAllEvents);
+router.get('/events/:id/full', getEventFull); // ⚡ ULTRA-OPTIMIZED: Single endpoint for all event data
 router.get('/events/:id/basic', getEventBasic);
 router.get('/events/:id/details', getEventDetails);
 router.get('/events/:id/tickets', getEventTickets);
