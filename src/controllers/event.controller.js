@@ -471,10 +471,12 @@ export const getActiveEvent = async (req, res, next) => {
         const forceRefresh = req.query.refresh === 'true';
         if (forceRefresh) {
             await cacheService.delete(cacheKey);
+            console.log('[Active Event] Cache cleared for user:', req.user.id);
         }
         
         const cached = await cacheService.get(cacheKey);
         if (cached && !forceRefresh) {
+            console.log('[Active Event] Cache hit - hostId:', cached.hostId, 'type:', typeof cached.hostId);
             return res.status(200).json({ success: true, data: cached });
         }
 
@@ -490,11 +492,15 @@ export const getActiveEvent = async (req, res, next) => {
         .lean();
         
         if (booking) {
+            console.log('[Active Event] DB result - hostId before:', booking.hostId, 'type:', typeof booking.hostId);
             // Convert hostId ObjectId to string for frontend
             if (booking.hostId) {
                 booking.hostId = booking.hostId.toString();
             }
+            console.log('[Active Event] DB result - hostId after:', booking.hostId, 'type:', typeof booking.hostId);
             await cacheService.set(cacheKey, booking, 120);
+        } else {
+            console.log('[Active Event] No active booking found for user:', req.user.id);
         }
         res.status(200).json({ success: true, data: booking || null });
     } catch (err) { 
