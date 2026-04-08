@@ -104,6 +104,7 @@ export const getAllEvents = async (req, res, next) => {
 ;
 
 export const getEventBasic = async (req, res, next) => {
+    const startTime = Date.now();
     try {
         const { id } = req.params;
         if (!id || id === 'undefined' || id.length < 12) {
@@ -112,15 +113,16 @@ export const getEventBasic = async (req, res, next) => {
 
         const cacheKey = cacheService.formatKey('event_basic_v2', id);
         const cached = await cacheService.get(cacheKey);
-        if (cached) return res.status(200).json({ success: true, data: cached });
+        if (cached) {
+            console.log(`[⚡ API] getEventBasic (cached): ${Date.now() - startTime}ms`);
+            return res.status(200).json({ success: true, data: cached });
+        }
 
         // ⚡ OPTIMIZED: Only return essential fields for initial render (no tickets/floors arrays)
         const item = await Event.findById(id)
             .select('title date startTime endTime coverImage images status hostId hostModel locationVisibility isLocationRevealed locationData floorCount attendeeCount')
             .lean();
         if (!item) return res.status(404).json({ success: false, message: 'Event not found' });
-
-        console.log(`[getEventBasic] Event ${id} - coverImage: ${!!item.coverImage}, images: ${item.images?.length || 0}`);
 
         // Safely Resolve Host (Parallel)
         try {
@@ -151,12 +153,14 @@ export const getEventBasic = async (req, res, next) => {
         }
 
         await cacheService.set(cacheKey, item, 600);
+        console.log(`[⚡ API] getEventBasic (DB): ${Date.now() - startTime}ms`);
         res.set('Cache-Control', 'public, max-age=180, stale-while-revalidate=60');
         res.status(200).json({ success: true, data: item });
     } catch (err) { next(err); }
 };
 
 export const getEventDetails = async (req, res, next) => {
+    const startTime = Date.now();
     try {
         const { id } = req.params;
         if (!id || id === 'undefined' || id.length < 12) {
@@ -165,7 +169,10 @@ export const getEventDetails = async (req, res, next) => {
 
         const cacheKey = cacheService.formatKey('event_details_v3', id);
         const cached = await cacheService.get(cacheKey);
-        if (cached) return res.status(200).json({ success: true, data: cached });
+        if (cached) {
+            console.log(`[⚡ API] getEventDetails (cached): ${Date.now() - startTime}ms`);
+            return res.status(200).json({ success: true, data: cached });
+        }
 
         // ⚡ OPTIMIZED: Only return additional details not in basic (exclude heavy arrays like tickets/floors/images)
         const event = await Event.findById(id)
@@ -174,15 +181,15 @@ export const getEventDetails = async (req, res, next) => {
             
         if (!event) return res.status(404).json({ success: false, message: 'Event not found' });
 
-        // Note: Host already resolved in basic endpoint, no need to duplicate here
-
         await cacheService.set(cacheKey, event, 300);
+        console.log(`[⚡ API] getEventDetails (DB): ${Date.now() - startTime}ms`);
         res.set('Cache-Control', 'public, max-age=180, stale-while-revalidate=60');
         return res.status(200).json({ success: true, data: event });
     } catch (err) { next(err); }
 };
 
 export const getEventTickets = async (req, res, next) => {
+    const startTime = Date.now();
     try {
         const { id } = req.params;
         const event = await Event.findById(id).select('tickets floors bookingOpenDate').lean();
@@ -191,6 +198,7 @@ export const getEventTickets = async (req, res, next) => {
             tickets: event.tickets || [],
             floors: event.floors || []
         };
+        console.log(`[⚡ API] getEventTickets: ${Date.now() - startTime}ms`);
         res.status(200).json({ success: true, data });
     } catch (err) { next(err); }
 };
