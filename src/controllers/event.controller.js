@@ -472,10 +472,13 @@ export const getActiveEvent = async (req, res, next) => {
         const booking = await Booking.findOne({ 
             userId: req.user.id, 
             status: { $in: ['approved', 'active', 'checked_in'] }
-        }).populate({
+        })
+        .select('eventId hostId status tableId zone createdAt') // ⚡ Include hostId
+        .populate({
             path: 'eventId',
             select: 'title coverImage startTime venueId'
-        }).lean();
+        })
+        .lean();
         
         if (booking) {
             await cacheService.set(cacheKey, booking, 120); // 2 min cache for dynamic status
