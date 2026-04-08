@@ -53,16 +53,22 @@ passport.use(new GoogleStrategy({
             return done(new Error('No email from Google'), null);
         }
 
-        // Find user across all collections in parallel
-        console.log('[DEBUG] Searching for user in DB...');
-        const [adminUser, hostUser, staffUser, normalUser] = await Promise.all([
+        // 🔒 SECURITY: Google login is ONLY for regular users, not admin/host/staff
+        // Admin/Host/Staff must use their dedicated login flows (OTP or password)
+        console.log('[DEBUG] Searching for user in User collection only...');
+        let user = await User.findOne({ email: { $regex: new RegExp(`^${email}$`, 'i') } });
+        
+        // 🚨 BLOCK: If email exists in Admin/Host/Staff, reject Google login
+        const [adminExists, hostExists, staffExists] = await Promise.all([
             Admin.findOne({ email: { $regex: new RegExp(`^${email}$`, 'i') } }),
-            Host.findOne({  email: { $regex: new RegExp(`^${email}$`, 'i') } }),
+            Host.findOne({ email: { $regex: new RegExp(`^${email}$`, 'i') } }),
             Staff.findOne({ email: { $regex: new RegExp(`^${email}$`, 'i') } }),
-            User.findOne({  email: { $regex: new RegExp(`^${email}$`, 'i') } }),
         ]);
-
-        let user = adminUser || hostUser || staffUser || normalUser;
+        
+        if (adminExists || hostExists || staffExists) {
+            console.error('[DEBUG] Email belongs to Admin/Host/Staff - Google login not allowed');
+            return done(new Error('This email is registered as Admin/Host/Staff. Please use the appropriate login method.'), null);
+        }
 
         if (!user) {
             console.log('[DEBUG] New user! Provisioning with auto-username...');

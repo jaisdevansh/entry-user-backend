@@ -696,15 +696,25 @@ export const googleLogin = async (req, res, next) => {
 
         const emailLower = email.toLowerCase();
 
-        // Parallel lookup across all roles
-        const [adminUser, hostUser, staffUser, normalUser] = await Promise.all([
+        // 🔒 SECURITY: Google login is ONLY for regular users, not admin/host/staff
+        // Admin/Host/Staff must use their dedicated login flows (OTP or password)
+        console.log('[Backend] Checking if email belongs to User collection only...');
+        let user = await User.findOne({ email: { $regex: new RegExp(`^${emailLower}$`, 'i') } });
+        
+        // 🚨 BLOCK: If email exists in Admin/Host/Staff, reject Google login
+        const [adminExists, hostExists, staffExists] = await Promise.all([
             Admin.findOne({ email: { $regex: new RegExp(`^${emailLower}$`, 'i') } }),
             Host.findOne({ email: { $regex: new RegExp(`^${emailLower}$`, 'i') } }),
             Staff.findOne({ email: { $regex: new RegExp(`^${emailLower}$`, 'i') } }),
-            User.findOne({ email: { $regex: new RegExp(`^${emailLower}$`, 'i') } }),
         ]);
-
-        let user = adminUser || hostUser || staffUser || normalUser;
+        
+        if (adminExists || hostExists || staffExists) {
+            console.error('[Backend] Email belongs to Admin/Host/Staff - Google login not allowed');
+            return res.status(403).json({ 
+                success: false, 
+                message: 'This email is registered as Admin/Host/Staff. Please use the appropriate login method.' 
+            });
+        }
 
         if (!user) {
             // New Google user — auto-provision with username, skip onboarding
