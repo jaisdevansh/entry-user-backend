@@ -116,9 +116,11 @@ export const getEventBasic = async (req, res, next) => {
 
         // ⚡ OPTIMIZED: Only return essential fields for initial render (no tickets/floors arrays)
         const item = await Event.findById(id)
-            .select('title date startTime endTime coverImage status hostId hostModel locationVisibility isLocationRevealed locationData floorCount attendeeCount')
+            .select('title date startTime endTime coverImage images status hostId hostModel locationVisibility isLocationRevealed locationData floorCount attendeeCount')
             .lean();
         if (!item) return res.status(404).json({ success: false, message: 'Event not found' });
+
+        console.log(`[getEventBasic] Event ${id} - coverImage: ${!!item.coverImage}, images: ${item.images?.length || 0}`);
 
         // Safely Resolve Host (Parallel)
         try {
