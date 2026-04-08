@@ -466,14 +466,23 @@ export const getEventBooking = async (req, res, next) => {
 export const getActiveEvent = async (req, res, next) => {
     try {
         const cacheKey = cacheService.formatKey('active_event', req.user.id);
+        
+        // Check if force refresh is requested
+        const forceRefresh = req.query.refresh === 'true';
+        if (forceRefresh) {
+            await cacheService.delete(cacheKey);
+        }
+        
         const cached = await cacheService.get(cacheKey);
-        if (cached) return res.status(200).json({ success: true, data: cached });
+        if (cached && !forceRefresh) {
+            return res.status(200).json({ success: true, data: cached });
+        }
 
         const booking = await Booking.findOne({ 
             userId: req.user.id, 
             status: { $in: ['approved', 'active', 'checked_in'] }
         })
-        .select('eventId hostId status tableId zone createdAt') // ⚡ Include hostId
+        .select('eventId hostId status tableId zone createdAt')
         .populate({
             path: 'eventId',
             select: 'title coverImage startTime venueId'
@@ -481,10 +490,17 @@ export const getActiveEvent = async (req, res, next) => {
         .lean();
         
         if (booking) {
-            await cacheService.set(cacheKey, booking, 120); // 2 min cache for dynamic status
+            // Convert hostId ObjectId to string for frontend
+            if (booking.hostId) {
+                booking.hostId = booking.hostId.toString();
+            }
+            await cacheService.set(cacheKey, booking, 120);
         }
         res.status(200).json({ success: true, data: booking || null });
-    } catch (err) { next(err); }
+    } catch (err) { 
+        console.error('[Active Event] Error:', err.message);
+        next(err); 
+    }
 };
 
 // ── PUBLIC: Get host's menu items by hostId (post-booking) ─────────────────
