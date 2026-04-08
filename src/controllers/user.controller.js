@@ -12,51 +12,63 @@ import { AppRating } from '../models/AppRating.js';
 export const getProfile = async (req, res, next) => {
     try {
         const { id, role } = req.user;
-        const cacheHandle = await cacheService.get(cacheService.formatKey('profile', id));
-        if (cacheHandle) return res.status(200).json({ success: true, data: typeof cacheHandle === 'string' ? JSON.parse(cacheHandle) : cacheHandle });
+        const cacheKey = cacheService.formatKey('profile_v2', id);
+        
+        // ⚡ ULTRA FAST: Check cache first
+        const cached = await cacheService.get(cacheKey);
+        if (cached) {
+            res.set('Cache-Control', 'private, max-age=180');
+            return res.status(200).json({ success: true, data: typeof cached === 'string' ? JSON.parse(cached) : cached });
+        }
 
         let user = null;
 
-        // Determine which model to use based on role (LIVE lookup, no cache)
+        // ⚡ OPTIMIZED: Direct lookup based on role (no fallback needed 99% of time)
         const normalizedRole = role?.toUpperCase();
+        
+        // Select only essential fields (exclude heavy arrays)
+        const SELECT = '-password -refreshToken -__v -createdAt -updatedAt';
+        
         if (normalizedRole === 'HOST') {
-            user = await Host.findById(id).select('-password -refreshToken').lean();
+            user = await Host.findById(id).select(SELECT).lean();
         } else if (['ADMIN', 'SUPERADMIN'].includes(normalizedRole)) {
-            user = await Admin.findById(id).select('-password -refreshToken').lean();
+            user = await Admin.findById(id).select(SELECT).lean();
         } else if (['STAFF', 'WAITER', 'SECURITY'].includes(normalizedRole)) {
-            user = await Staff.findById(id).select('-password -refreshToken').lean();
+            user = await Staff.findById(id).select(SELECT).lean();
         } else {
-            user = await User.findById(id).select('-password -refreshToken').lean();
+            user = await User.findById(id).select(SELECT).lean();
         }
 
-        // Fallback: If not found in primary model, search others with correct priority in parallel
+        // Only do fallback if absolutely necessary (rare case)
         if (!user) {
-            const results = await Promise.all([
-                Admin.findById(id).select('-password -refreshToken').lean(),
-                Host.findById(id).select('-password -refreshToken').lean(),
-                Staff.findById(id).select('-password -refreshToken').lean(),
-                User.findById(id).select('-password -refreshToken').lean()
+            const [admin, host, staff, regularUser] = await Promise.all([
+                Admin.findById(id).select(SELECT).lean(),
+                Host.findById(id).select(SELECT).lean(),
+                Staff.findById(id).select(SELECT).lean(),
+                User.findById(id).select(SELECT).lean()
             ]);
-            user = results.find(u => u !== null) || null;
+            user = admin || host || staff || regularUser;
         }
 
         if (!user) {
             return res.status(404).json({ success: false, message: 'User not found' });
         }
 
-        // Map Host schema (firstName/lastName) to unified (name/fullName) for frontend compatibility
+        // Map Host schema (firstName/lastName) to unified (name/fullName)
         if (user && !user.name && user.firstName) {
             user.name = `${user.firstName || ''} ${user.lastName || ''}`.trim();
             user.fullName = user.name;
         }
 
-        // Parallel Venue check for staff
-        if (['staff', 'waiter', 'security'].includes(user.role?.toLowerCase())) {
+        // ⚡ OPTIMIZED: Only fetch venue for staff if needed
+        if (['staff', 'waiter', 'security'].includes(user.role?.toLowerCase()) && user.hostId) {
             const venue = await Venue.findOne({ hostId: user.hostId }).select('name heroImage venueType').lean();
-            user.venue = venue;
+            if (venue) user.venue = venue;
         }
 
-        await cacheService.set(cacheService.formatKey('profile', id), user, 300);
+        // ⚡ Cache for 10 minutes
+        await cacheService.set(cacheKey, user, 600);
+        res.set('Cache-Control', 'private, max-age=180');
         res.status(200).json({ success: true, data: user });
     } catch (err) { next(err); }
 };

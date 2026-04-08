@@ -17,115 +17,139 @@ import { bookEventSchema } from '../validators/user.validator.js';
 
 export const getAllEvents = async (req, res, next) => {
     try {
-        const cacheKey = 'events_all_guest_v11';
-        const events = await cacheService.wrap(cacheKey, 300, async () => {
+        const cacheKey = 'events_all_guest_v13_ultra'; // ⚡ ULTRA OPTIMIZED
+        const events = await cacheService.wrap(cacheKey, 600, async () => { // 10min cache
             const now = new Date();
-            // Start of today (00:00:00) to allow events happening later today
             const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-            const rawEvents = await Event.find({ 
-                status: 'LIVE',
-                date: { $gte: startOfToday } 
-            })
-                .select('title date startTime coverImage locationVisibility isLocationRevealed locationData floorCount tickets floors hostId hostModel attendeeCount')
-                .sort({ date: 1 })
-                .lean();
-            
-            // 🚀 ROCKET SPEED: Batch Fetch all unique hosts
-            const filteredEvents = rawEvents.filter(e => {
-                const eventDate = new Date(e.date);
-                // If it's today, check if start time has passed (roughly)
-                if (eventDate.toDateString() === now.toDateString()) {
-                    // Try to parse startTime (e.g., "10:30 PM")
-                    // If it's after 4 AM next day of the event date, hide it. 
-                    // But for now, simple date check is enough as per user request.
-                    return true; 
+            // ⚡ ULTRA OPTIMIZED: Only return minimal fields for list view
+            const results = await Event.aggregate([
+                { 
+                    $match: { 
+                        status: 'LIVE', 
+                        date: { $gte: startOfToday } 
+                    } 
+                },
+                { $sort: { date: 1 } },
+                {
+                    $lookup: {
+                        from: 'hosts',
+                        localField: 'hostId',
+                        foreignField: '_id',
+                        as: 'hostDetails'
+                    }
+                },
+                {
+                    $lookup: {
+                        from: 'users',
+                        localField: 'hostId',
+                        foreignField: '_id',
+                        as: 'userDetails'
+                    }
+                },
+                {
+                    $project: {
+                        // ⚡ ONLY essential fields for card view
+                        title: 1, 
+                        date: 1, 
+                        startTime: 1, 
+                        coverImage: 1,
+                        attendeeCount: 1,
+                        // Calculate displayPrice in DB (faster)
+                        minPrice: { $min: '$tickets.price' },
+                        totalCapacity: { $sum: '$tickets.capacity' },
+                        totalSold: { $sum: '$tickets.sold' },
+                        host: { 
+                            $ifNull: [
+                                { $arrayElemAt: ['$hostDetails', 0] }, 
+                                { $arrayElemAt: ['$userDetails', 0] }
+                            ] 
+                        }
+                    }
                 }
-                return eventDate >= startOfToday;
-            });
+            ]);
 
-            const hostGroups = filteredEvents.reduce((acc, e) => {
-                if (!e.hostId) return acc;
-                const model = e.hostModel || 'Host';
-                if (!acc[model]) acc[model] = new Set();
-                acc[model].add(e.hostId.toString());
-                return acc;
-            }, {});
-
-            const hostDataMap = {};
-            await Promise.all(Object.keys(hostGroups).map(async (model) => {
-                const ids = Array.from(hostGroups[model]);
-                const Model = model === 'Host' ? Host : User;
-                try {
-                    const hosts = await Model.find({ _id: { $in: ids } })
-                        .select('firstName lastName name profileImage username')
-                        .lean();
-                    hosts.forEach(h => { hostDataMap[`${model}_${h._id}`] = h; });
-                } catch (e) {
-                    console.error(`[Host Resolve Fail] ${model}:`, e.message);
-                }
-            }));
-
-            return filteredEvents.map((e) => {
-                const model = e.hostModel || 'Host';
-                const hIdStr = e.hostId ? e.hostId.toString() : null;
-                let host = hIdStr ? hostDataMap[`${model}_${hIdStr}`] : null;
-                
-                if (!host && hIdStr) {
-                    const altModel = model === 'Host' ? 'User' : 'Host';
-                    host = hostDataMap[`${altModel}_${hIdStr}`]; 
-                }
-
+            return results.map(e => {
+                const host = e.host;
                 const finalName = host 
                     ? (host.name || `${host.firstName || ''} ${host.lastName || ''}`.trim())
                     : 'Collective Underground';
 
-                const allPrices = [...(e.tickets || []), ...(e.floors || [])]
-                    .map(t => t.price).filter(p => typeof p === 'number' && p > 0);
-                const displayPrice = allPrices.length > 0 ? Math.min(...allPrices) : 2500;
-
-                const totalCapacity = (e.tickets || []).reduce((acc, t) => acc + (t.capacity || 0), 0) + 
-                                      (e.floors || []).reduce((acc, f) => acc + (f.capacity || 0), 0) || e.attendeeCount || 100;
-                const totalSold = (e.tickets || []).reduce((acc, t) => acc + (t.sold || 0), 0) + 
-                                  (e.floors || []).reduce((acc, f) => acc + (f.bookedCount || 0), 0) || 0;
-
-                const occupancy = Math.min(Math.round((totalSold / totalCapacity) * 100), 100) || (20 + (Math.floor(Math.random() * 60)));
+                const displayPrice = e.minPrice || 2500;
+                const cap = e.totalCapacity || e.attendeeCount || 100;
+                const sold = e.totalSold || 0;
+                const occupancy = Math.min(Math.round((sold / cap) * 100), 100) || (20 + Math.floor(Math.random() * 40));
 
                 return {
-                    ...e,
+                    _id: e._id,
+                    title: e.title,
+                    date: e.date,
+                    startTime: e.startTime,
+                    coverImage: e.coverImage,
                     displayPrice,
                     occupancy: `${occupancy}%`,
-                    hostId: host ? { ...host, name: finalName } : { name: 'Collective Underground', profileImage: null }
+                    hostId: {
+                        _id: host?._id || e.hostId,
+                        name: finalName,
+                        profileImage: host?.profileImage || null
+                    }
                 };
             });
         });
+
+        res.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=120');
         res.status(200).json({ success: true, data: events });
     } catch (err) { next(err); }
 };
+;
 
 export const getEventBasic = async (req, res, next) => {
     try {
         const { id } = req.params;
+        if (!id || id === 'undefined' || id.length < 12) {
+             return res.status(404).json({ success: false, message: 'Invalid Event ID' });
+        }
+
+        const cacheKey = cacheService.formatKey('event_basic_v2', id);
+        const cached = await cacheService.get(cacheKey);
+        if (cached) return res.status(200).json({ success: true, data: cached });
+
+        // ⚡ OPTIMIZED: Only return essential fields for initial render (no tickets/floors arrays)
         const item = await Event.findById(id)
-            .select('title date startTime coverImage status venueId hostId hostModel locationData floorCount tickets')
+            .select('title date startTime endTime coverImage status hostId hostModel locationVisibility isLocationRevealed locationData floorCount attendeeCount')
             .lean();
         if (!item) return res.status(404).json({ success: false, message: 'Event not found' });
 
-        // Manual Host Resolution
-        let host = await Host.findById(item.hostId).select('firstName lastName name profileImage').lean();
-        if (!host) {
-            host = await User.findById(item.hostId).select('name profileImage').lean();
-        }
-        
-        if (host) {
-            item.hostId = {
-                ...host,
-                name: host.name || `${host.firstName || ''} ${host.lastName || ''}`.trim() || 'Collective Underground'
-            };
-        } else {
+        // Safely Resolve Host (Parallel)
+        try {
+            let [hostObj, userObj] = await Promise.all([
+                item.hostId ? Host.findById(item.hostId).select('firstName lastName name profileImage').lean() : null,
+                item.hostId ? User.findById(item.hostId).select('name profileImage').lean() : null
+            ]);
+            
+            const host = hostObj || userObj;
+            if (host) {
+                item.hostId = {
+                    ...host,
+                    name: host.name || `${host.firstName || ''} ${host.lastName || ''}`.trim() || 'Collective Underground'
+                };
+            } else {
+                item.hostId = { name: 'Collective Underground' };
+            }
+        } catch (hErr) {
+            console.error('[SafeHostRes] Failed for Event:', id, hErr.message);
             item.hostId = { name: 'Collective Underground' };
         }
 
+        // Privacy masking
+        let canViewLocation = (item.locationVisibility === 'public' || item.isLocationRevealed);
+        if (!canViewLocation) {
+            item.locationData = null;
+            item.isLocationMasked = true;
+        }
+
+        await cacheService.set(cacheKey, item, 600);
+        res.set('Cache-Control', 'public, max-age=180, stale-while-revalidate=60');
         res.status(200).json({ success: true, data: item });
     } catch (err) { next(err); }
 };
@@ -133,34 +157,25 @@ export const getEventBasic = async (req, res, next) => {
 export const getEventDetails = async (req, res, next) => {
     try {
         const { id } = req.params;
+        if (!id || id === 'undefined' || id.length < 12) {
+             return res.status(404).json({ success: false, message: 'Invalid Event ID' });
+        }
+
+        const cacheKey = cacheService.formatKey('event_details_v3', id);
+        const cached = await cacheService.get(cacheKey);
+        if (cached) return res.status(200).json({ success: true, data: cached });
+
+        // ⚡ OPTIMIZED: Only return additional details not in basic (exclude heavy arrays like tickets/floors/images)
         const event = await Event.findById(id)
-            .select('-__v -updatedAt -hostModel -createdAt')
+            .select('description houseRules freeRefreshmentsCount allowNonTicketView bookingOpenDate isFeatured isTrending views')
             .lean();
             
         if (!event) return res.status(404).json({ success: false, message: 'Event not found' });
 
-        // Manual Host Resolution
-        let host = await Host.findById(event.hostId).select('firstName lastName name profileImage username').lean();
-        if (!host) {
-            host = await User.findById(event.hostId).select('name profileImage username').lean();
-        }
-        
-        if (host) {
-            event.hostId = {
-                ...host,
-                name: host.name || `${host.firstName || ''} ${host.lastName || ''}`.trim() || 'Collective Underground'
-            };
-        } else {
-            event.hostId = { name: 'Collective Underground' };
-        }
+        // Note: Host already resolved in basic endpoint, no need to duplicate here
 
-        // Privacy Masking Logic (identical to getEventById but for guests)
-        let canViewLocation = (event.locationVisibility === 'public' || event.isLocationRevealed);
-        if (!canViewLocation) {
-            event.locationData = null;
-            event.isLocationMasked = true;
-        }
-
+        await cacheService.set(cacheKey, event, 300);
+        res.set('Cache-Control', 'public, max-age=180, stale-while-revalidate=60');
         return res.status(200).json({ success: true, data: event });
     } catch (err) { next(err); }
 };
@@ -255,12 +270,18 @@ export const bookEvent = async (req, res, next) => {
             status: 'active'
         });
 
-        // Async Non-blocking Side-Effect: Notify Host
+        // Async Non-blocking Side-Effect: Notify Host + Clear Caches
         (async () => {
             const io = getIO();
             if (io) {
                 io.to(event.hostId.toString()).emit('new_booking', { event: event.title, bookingId: booking._id });
             }
+            // Clear relevant caches for instant UI update
+            await Promise.all([
+                cacheService.delete(cacheService.formatKey('active_event', req.user.id)),
+                cacheService.delete(cacheService.formatKey('booking', req.user.id, eventId)),
+                cacheService.delete(cacheService.formatKey('my-bookings', req.user.id))
+            ]);
         })().catch(e => console.error('[Event Sync Fail]', e.message));
 
         res.status(201).json({ success: true, message: 'Experience Booked!', data: booking });
@@ -302,29 +323,41 @@ export const getMenuItems = async (req, res, next) => {
 export const getEventBooking = async (req, res, next) => {
     try {
         const { eventId } = req.params;
+        const cacheKey = cacheService.formatKey('booking', req.user.id, eventId);
+        const cached = await cacheService.get(cacheKey);
+        if (cached) return res.status(200).json({ success: true, data: cached });
+
         const booking = await Booking.findOne({ 
             userId: req.user.id, 
             eventId,
             status: { $in: ['active', 'checked_in', 'confirmed'] } 
         }).populate('venueId', 'name address').lean();
 
-        if (!booking) return res.status(200).json({ success: true, data: null, message: 'No active booking' });
-        
-        res.status(200).json({ success: true, data: booking });
+        if (booking) {
+            await cacheService.set(cacheKey, booking, 300);
+        }
+        res.status(200).json({ success: true, data: booking || null });
     } catch (err) { next(err); }
 };
 
 export const getActiveEvent = async (req, res, next) => {
     try {
+        const cacheKey = cacheService.formatKey('active_event', req.user.id);
+        const cached = await cacheService.get(cacheKey);
+        if (cached) return res.status(200).json({ success: true, data: cached });
+
         const booking = await Booking.findOne({ 
             userId: req.user.id, 
-            status: { $in: ['approved', 'active', 'checked_in'] }   // ✅ 'approved' = paid booking
+            status: { $in: ['approved', 'active', 'checked_in'] }
         }).populate({
             path: 'eventId',
             select: 'title coverImage startTime venueId'
         }).lean();
         
-        res.status(200).json({ success: true, data: booking });
+        if (booking) {
+            await cacheService.set(cacheKey, booking, 120); // 2 min cache for dynamic status
+        }
+        res.status(200).json({ success: true, data: booking || null });
     } catch (err) { next(err); }
 };
 

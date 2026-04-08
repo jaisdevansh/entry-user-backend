@@ -136,7 +136,7 @@ router.get('/callback/google',
         }
         passport.authenticate('google', { session: false })(req, res, next);
     },
-    (req, res) => {
+    async (req, res) => {
         try {
             console.log('--- [BACKEND DEBUG] Handling Final Callback ---');
             const user = req.user;
@@ -155,14 +155,29 @@ router.get('/callback/google',
             }
 
             console.log('[DEBUG] Generating JWT for user:', user.email);
+            
+            // ⚡ LONG SESSION: Generate tokens with extended expiry (matching regular login)
             const token = jwt.sign(
                 { userId: user._id, role: user.role, hostId: user.hostId || null },
                 process.env.JWT_SECRET || 'supersecretkey123',
-                { expiresIn: '7d' }
+                { expiresIn: '30d' }  // ⚡ 30 days for persistent sessions
+            );
+            
+            const refreshToken = jwt.sign(
+                { userId: user._id },
+                process.env.JWT_REFRESH_SECRET || 'superrefreshsecret123',
+                { expiresIn: '90d' }  // ⚡ 90 days for persistent sessions
+            );
+            
+            // ⚡ FIX: Save refresh token to database (now properly async)
+            await user.constructor.updateOne(
+                { _id: user._id }, 
+                { $set: { refreshToken } }
             );
 
             const params = new URLSearchParams({
                 token,
+                refreshToken,  // ⚡ FIX: Include refresh token in callback
                 role:                user.role || 'user',
                 name:                user.name || '',
                 email:               user.email || '',
