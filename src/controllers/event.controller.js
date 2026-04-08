@@ -502,16 +502,11 @@ export const getActiveEvent = async (req, res, next) => {
 export const getHostMenu = async (req, res, next) => {
     try {
         const { hostId } = req.params;
-        console.log('[Host Menu] Request for hostId:', hostId);
-        
         if (!hostId) return res.status(200).json({ success: true, data: [] });
 
         const cacheKey = cacheService.formatKey('host_menu', hostId);
         const cached = await cacheService.get(cacheKey);
-        if (cached) {
-            console.log('[Host Menu] Cache hit, returning', cached.length, 'items');
-            return res.status(200).json({ success: true, data: typeof cached === 'string' ? JSON.parse(cached) : cached });
-        }
+        if (cached) return res.status(200).json({ success: true, data: typeof cached === 'string' ? JSON.parse(cached) : cached });
 
         const SELECT = 'name price category image desc inStock';
 
@@ -520,56 +515,37 @@ export const getHostMenu = async (req, res, next) => {
             .sort({ category: 1 })
             .lean();
 
-        console.log('[Host Menu] Found', items.length, 'items for hostId:', hostId);
-
         if (items.length === 0) {
             const venue = await Venue.findOne({ hostId }).select('_id').lean();
             if (venue) {
-                console.log('[Host Menu] Trying venue fallback:', venue._id);
                 items = await MenuItem.find({ venueId: venue._id }).select(SELECT).sort({ category: 1 }).lean();
-                console.log('[Host Menu] Found', items.length, 'items for venueId:', venue._id);
             }
         }
 
         const data = items.map(i => ({ ...i, type: i.category, description: i.desc || '' }));
         await cacheService.set(cacheKey, data, 600);
-        console.log('[Host Menu] Returning', data.length, 'items');
         res.status(200).json({ success: true, data, count: data.length });
-    } catch (err) { 
-        console.error('[Host Menu] Error:', err.message);
-        next(err); 
-    }
+    } catch (err) { next(err); }
 };
 
 // ── PUBLIC: Get host's gifts by hostId (used post-booking) ───────────────────
 export const getHostGifts = async (req, res, next) => {
     try {
         const { hostId } = req.params;
-        console.log('[Host Gifts] Request for hostId:', hostId);
-        
         if (!hostId) return res.status(200).json({ success: true, data: [] });
 
         const cacheKey = cacheService.formatKey('host_gifts', hostId);
         const cached = await cacheService.get(cacheKey);
-        if (cached) {
-            const items = typeof cached === 'string' ? JSON.parse(cached) : cached;
-            console.log('[Host Gifts] Cache hit, returning', items.length, 'items');
-            return res.status(200).json({ success: true, data: items });
-        }
+        if (cached) return res.status(200).json({ success: true, data: typeof cached === 'string' ? JSON.parse(cached) : cached });
 
         const gifts = await Gift.find({ hostId, inStock: true, isDeleted: false })
             .select('name description price category image inStock')
             .sort({ category: 1 })
             .lean();
 
-        console.log('[Host Gifts] Found', gifts.length, 'gifts for hostId:', hostId);
-
         await cacheService.set(cacheKey, gifts, 600);
         res.status(200).json({ success: true, data: gifts });
-    } catch (err) { 
-        console.error('[Host Gifts] Error:', err.message);
-        next(err); 
-    }
+    } catch (err) { next(err); }
 };
 
 export const reportEvent = async (req, res, next) => {
