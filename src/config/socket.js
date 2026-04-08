@@ -28,8 +28,14 @@ export const initSocket = (server) => {
     });
 
     io.on('connection', (socket) => {
-        const userId = socket.user.id;
+        const userId = socket.user?.id || socket.user?._id;
         
+        if (!userId) {
+            console.warn('[Socket] Disconnecting user with invalid/missing ID in JWT token');
+            socket.disconnect(true);
+            return;
+        }
+
         if (!users.has(userId)) users.set(userId, new Set());
         users.get(userId).add(socket.id);
         
