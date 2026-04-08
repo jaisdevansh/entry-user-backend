@@ -34,7 +34,7 @@ export const askSupport = async (req, res, next) => {
         }
 
         const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
 
 
         // 3. Fetch recent history for context (only fields needed by Gemini)
@@ -60,7 +60,7 @@ export const askSupport = async (req, res, next) => {
                     role: "model",
                     parts: [{ text: "Welcome to Entry Club. I am your personal concierge, dedicated to elevating your experience. How may I assist you this evening?" }],
                 },
-                ...context.slice(0, -1) // All except the latest one which we just added
+                ...context.slice(0, -1)
             ],
         });
 
@@ -73,7 +73,7 @@ export const askSupport = async (req, res, next) => {
             content: aiResponseText,
             role: 'ai',
             metadata: {
-                model: "gemini-2.5-flash"
+                model: "gemini-2.0-flash-exp"
             }
         });
 
@@ -88,16 +88,14 @@ export const askSupport = async (req, res, next) => {
         });
 
     } catch (err) {
-        console.error("================ Gemini Error ================");
-        console.error(err);
-        console.error("==============================================");
+        console.error('[AI Chat] Error:', err.message);
         
         // GRACEFUL FALLBACK FOR LOCAL DEV NETWORK BLOCKING
         if (err.message && err.message.includes('fetch failed')) {
             return res.status(200).json({
                 success: true,
                 data: {
-                    message: "I am experiencing network connectivity issues at the moment (Local ISP/DNS block). Please try again later.",
+                    message: "I am experiencing network connectivity issues at the moment. Please try again later.",
                     historyId: "fallback_sys_error",
                     userMessageId: "fallback_sys_usr"
                 }
@@ -233,7 +231,7 @@ export const submitSupportRequest = async (req, res, next) => {
 
 export const submitIncidentReport = async (req, res, next) => {
     try {
-        const { type, zone, tableId, message } = req.body;
+        const { type, zone, tableId, message, eventId, hostId } = req.body;
         const userId = req.user.id;
 
         if (!type || !message) {
@@ -241,10 +239,47 @@ export const submitIncidentReport = async (req, res, next) => {
         }
 
         const { IssueReport } = await import('../models/IssueReport.js');
-        const report = await IssueReport.create({ userId, type, zone, tableId, message, status: 'open' });
+        
+        // If eventId/hostId not provided, try to get from active booking
+        let finalEventId = eventId;
+        let finalHostId = hostId;
+        
+        if (!finalEventId || !finalHostId) {
+            const { Booking } = await import('../models/booking.model.js');
+            const activeBooking = await Booking.findOne({ 
+                userId, 
+                status: { $in: ['approved', 'active', 'checked_in'] }
+            }).select('eventId hostId').lean();
+            
+            if (activeBooking) {
+                finalEventId = finalEventId || activeBooking.eventId;
+                finalHostId = finalHostId || activeBooking.hostId;
+            }
+        }
+        
+        if (!finalEventId || !finalHostId) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'eventId and hostId are required. Please ensure you have an active booking.' 
+            });
+        }
+
+        const report = await IssueReport.create({ 
+            userId, 
+            eventId: finalEventId,
+            hostId: finalHostId,
+            type, 
+            zone, 
+            tableId, 
+            message, 
+            status: 'open' 
+        });
 
         res.status(201).json({ success: true, message: 'Incident reported', data: report });
-    } catch (err) { next(err); }
+    } catch (err) { 
+        console.error('[Incident Report] Error:', err.message);
+        next(err); 
+    }
 };
 
 export const submitReview = async (req, res, next) => {
