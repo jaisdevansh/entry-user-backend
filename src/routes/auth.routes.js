@@ -185,10 +185,20 @@ router.get('/callback/google',
                 onboardingCompleted: 'true',   // ✅ Google users always skip onboarding
                 hostId:              user.hostId?.toString() || '',
                 username:            user.username || '',
+                phone:               user.phone || '',
+                gender:              user.gender || '',
+                userId:              user._id.toString(),
             });
 
             const deepLink = `${redirectUri}?${params.toString()}`;
             console.log('[DEBUG] Redirecting back to app via Deep Link:', deepLink.substring(0, 50) + '...');
+            console.log('[DEBUG] User data being sent:', {
+                name: user.name,
+                email: user.email,
+                profileImage: user.profileImage,
+                username: user.username,
+                userId: user._id.toString()
+            });
             return res.redirect(deepLink);
         } catch (err) {
             console.error('[Google Callback] Error:', err.message);
