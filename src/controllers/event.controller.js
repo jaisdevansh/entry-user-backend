@@ -206,6 +206,7 @@ export const getEventTickets = async (req, res, next) => {
 // Replaces: getEventBasic + getEventDetails + getEventTickets + getFloorPlan
 // Performance: 4859ms + 3588ms + 1661ms → <500ms (10x faster!)
 export const getEventFull = async (req, res, next) => {
+    const startTime = Date.now();
     try {
         const { id } = req.params;
         if (!id || id === 'undefined' || id.length < 12) {
@@ -216,11 +217,13 @@ export const getEventFull = async (req, res, next) => {
         const cacheKey = cacheService.formatKey('event_full_v1', id);
         const cached = await cacheService.get(cacheKey);
         if (cached) {
+            console.log(`[⚡ OPTIMIZED] getEventFull (CACHED): ${Date.now() - startTime}ms`);
             res.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=120');
             return res.status(200).json({ success: true, data: cached, cached: true });
         }
 
         // ⚡ STEP 2: Parallel execution - fetch everything at once
+        const dbStart = Date.now();
         const [event, dedicatedFloors] = await Promise.all([
             Event.findById(id)
                 .select('title date startTime endTime coverImage images status hostId locationVisibility isLocationRevealed locationData floorCount attendeeCount description houseRules freeRefreshmentsCount tickets floors bookingOpenDate')
@@ -232,6 +235,7 @@ export const getEventFull = async (req, res, next) => {
                 .lean(),
             Floor.find({ eventId: id }).select('name capacity price type').lean()
         ]);
+        console.log(`[⚡ DB] Parallel queries: ${Date.now() - dbStart}ms`);
 
         if (!event) {
             return res.status(404).json({ success: false, message: 'Event not found' });
@@ -297,12 +301,17 @@ export const getEventFull = async (req, res, next) => {
             floors: zones
         };
 
+        const payloadSize = JSON.stringify(data).length;
+        console.log(`[⚡ PAYLOAD] Size: ${(payloadSize / 1024).toFixed(2)}KB`);
+
         // ⚡ STEP 7: Cache for 5 minutes
         await cacheService.set(cacheKey, data, 300);
         
+        console.log(`[⚡ OPTIMIZED] getEventFull (DB): ${Date.now() - startTime}ms`);
         res.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=120');
         res.status(200).json({ success: true, data, cached: false });
     } catch (err) {
+        console.error(`[⚡ ERROR] getEventFull failed: ${Date.now() - startTime}ms`, err.message);
         next(err);
     }
 };
