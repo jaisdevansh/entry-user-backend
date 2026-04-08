@@ -467,16 +467,13 @@ export const getActiveEvent = async (req, res, next) => {
     try {
         const cacheKey = cacheService.formatKey('active_event', req.user.id);
         
-        // Check if force refresh is requested
         const forceRefresh = req.query.refresh === 'true';
         if (forceRefresh) {
             await cacheService.delete(cacheKey);
-            console.log('[Active Event] Cache cleared for user:', req.user.id);
         }
         
         const cached = await cacheService.get(cacheKey);
         if (cached && !forceRefresh) {
-            console.log('[Active Event] Cache hit - hostId:', cached.hostId, 'type:', typeof cached.hostId);
             return res.status(200).json({ success: true, data: cached });
         }
 
@@ -491,20 +488,12 @@ export const getActiveEvent = async (req, res, next) => {
         })
         .lean();
         
-        if (booking) {
-            console.log('[Active Event] DB result - hostId before:', booking.hostId, 'type:', typeof booking.hostId);
-            // Convert hostId ObjectId to string for frontend
-            if (booking.hostId) {
-                booking.hostId = booking.hostId.toString();
-            }
-            console.log('[Active Event] DB result - hostId after:', booking.hostId, 'type:', typeof booking.hostId);
+        if (booking && booking.hostId) {
+            booking.hostId = booking.hostId.toString();
             await cacheService.set(cacheKey, booking, 120);
-        } else {
-            console.log('[Active Event] No active booking found for user:', req.user.id);
         }
         res.status(200).json({ success: true, data: booking || null });
     } catch (err) { 
-        console.error('[Active Event] Error:', err.message);
         next(err); 
     }
 };
@@ -513,19 +502,19 @@ export const getActiveEvent = async (req, res, next) => {
 export const getHostMenu = async (req, res, next) => {
     try {
         const { hostId } = req.params;
+        if (!hostId) return res.status(200).json({ success: true, data: [] });
+
         const cacheKey = cacheService.formatKey('host_menu', hostId);
         const cached = await cacheService.get(cacheKey);
         if (cached) return res.status(200).json({ success: true, data: typeof cached === 'string' ? JSON.parse(cached) : cached });
 
         const SELECT = 'name price category image desc inStock';
 
-        // ⚡ Single query — covers all items for this host (inStock or not)
         let items = await MenuItem.find({ hostId })
             .select(SELECT)
             .sort({ category: 1 })
             .lean();
 
-        // Fallback: check venue (parallel venue lookup + query)
         if (items.length === 0) {
             const venue = await Venue.findOne({ hostId }).select('_id').lean();
             if (venue) {
@@ -533,9 +522,8 @@ export const getHostMenu = async (req, res, next) => {
             }
         }
 
-        // Map fields so frontend gets consistent shape
         const data = items.map(i => ({ ...i, type: i.category, description: i.desc || '' }));
-        await cacheService.set(cacheKey, data, 600); // 10 min cache
+        await cacheService.set(cacheKey, data, 600);
         res.status(200).json({ success: true, data, count: data.length });
     } catch (err) { next(err); }
 };
