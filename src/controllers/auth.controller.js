@@ -315,6 +315,16 @@ export const verifyOtp = async (req, res, next) => {
 
         const { accessToken, refreshToken } = generateTokens(user);
 
+        // Clear all user-specific caches on login
+        const cacheKeys = [
+            cacheService.formatKey('active_event', user._id),
+            cacheService.formatKey('my-bookings', user._id),
+            cacheService.formatKey('my-orders', user._id),
+            cacheService.formatKey('profile', user._id)
+        ];
+        
+        await Promise.all(cacheKeys.map(key => cacheService.delete(key)));
+
         // Atomic update for refreshtoken
         await user.constructor.updateOne({ _id: user._id }, { $set: { refreshToken } });
 
@@ -401,6 +411,16 @@ export const logout = async (req, res, next) => {
             const { id, role } = req.user;
             const normalizedRole = role?.toUpperCase();
             
+            // Clear all user-specific caches
+            const cacheKeys = [
+                cacheService.formatKey('active_event', id),
+                cacheService.formatKey('my-bookings', id),
+                cacheService.formatKey('my-orders', id),
+                cacheService.formatKey('profile', id)
+            ];
+            
+            await Promise.all(cacheKeys.map(key => cacheService.delete(key)));
+            
             // Atomic clearance in the correct collection
             if (normalizedRole === 'ADMIN' || normalizedRole === 'SUPERADMIN') {
                 await Admin.findByIdAndUpdate(id, { $set: { refreshToken: null } });
@@ -460,6 +480,17 @@ export const staffLogin = async (req, res, next) => {
         }
 
         const { accessToken, refreshToken } = generateTokens(user);
+        
+        // Clear all user-specific caches on login
+        const cacheKeys = [
+            cacheService.formatKey('active_event', user._id),
+            cacheService.formatKey('my-bookings', user._id),
+            cacheService.formatKey('my-orders', user._id),
+            cacheService.formatKey('profile', user._id)
+        ];
+        
+        await Promise.all(cacheKeys.map(key => cacheService.delete(key)));
+        
         user.refreshToken = refreshToken;
         await user.save();
 
@@ -741,6 +772,17 @@ export const googleLogin = async (req, res, next) => {
         }
 
         const { accessToken, refreshToken } = generateTokens(user);
+        
+        // Clear all user-specific caches on login
+        const cacheKeys = [
+            cacheService.formatKey('active_event', user._id),
+            cacheService.formatKey('my-bookings', user._id),
+            cacheService.formatKey('my-orders', user._id),
+            cacheService.formatKey('profile', user._id)
+        ];
+        
+        await Promise.all(cacheKeys.map(key => cacheService.delete(key)));
+        
         await user.constructor.updateOne({ _id: user._id }, { $set: { refreshToken } });
 
         res.status(200).json({
