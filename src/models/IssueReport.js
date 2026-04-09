@@ -6,7 +6,22 @@ const issueReportSchema = new mongoose.Schema({
     hostId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     type: { 
         type: String, 
-        enum: ['medical', 'harassment', 'fight', 'unsafe', 'other', 'Harassment & Conduct', 'Medical Emergency', 'Physical Altercation', 'Unsafe Environment'], 
+        enum: [
+            // Legacy short codes
+            'medical', 'harassment', 'fight', 'unsafe', 'other',
+            // Mobile app categories (report-incident.tsx)
+            'Harassment & Conduct',
+            'Lost & Found',
+            'Safety & Security',
+            'Emergency',
+            'Billing Issue',
+            'Technical Bug',
+            'Something Else',
+            // Security panel categories
+            'Medical Emergency',
+            'Physical Altercation',
+            'Unsafe Environment'
+        ], 
         required: true 
     },
     message: { type: String, required: true },

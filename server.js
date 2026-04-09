@@ -14,6 +14,7 @@ import xss from 'xss-clean';
 dotenv.config();
 
 import { logger } from './src/logs/logger.js';
+import { startCronJobs } from './src/services/cron.service.js';
 
 const NODE_ENV  = process.env.NODE_ENV || 'development';
 const MONGO_URI = process.env.MONGO_URI;
@@ -66,7 +67,7 @@ app.use((req, res, next) => {
         try {
             const payloadSize = JSON.stringify(data).length;
             if (payloadSize > 50000) {
-                console.warn(`[PERF ALERT] Large response detected: ${(payloadSize / 1024).toFixed(2)}KB on ${req.method} ${req.originalUrl}`);
+                // console.warn(`[PERF ALERT] Large response detected: ${(payloadSize / 1024).toFixed(2)}KB on ${req.method} ${req.originalUrl}`);
             }
         } catch (err) {}
         return originalJson.call(this, data);
@@ -77,7 +78,7 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(cookieParser());
 app.use(passport.initialize());
-app.use(NODE_ENV === 'production' ? morgan('tiny') : morgan('dev'));
+// app.use(NODE_ENV === 'production' ? morgan('tiny') : morgan('dev'));
 
 // ── Health ────────────────────────────────────────────────────────────────────
 app.get('/',       (_, res) => res.json({ status: 'active', service: 'user-api', env: NODE_ENV }));
@@ -118,7 +119,10 @@ const startServer = async () => {
         const { initLocationRevealService } = await import('./src/services/locationReveal.service.js');
         const { initIssueEscalationService } = await import('./src/services/issueEscalation.service.js');
 
-        const server = app.listen(PORT, '0.0.0.0', () => logger.info(`🚀 User API on port ${PORT}`));
+        const server = app.listen(PORT, '0.0.0.0', () => {
+            console.log("user backend is awaked");
+            startCronJobs();
+        });
         server.keepAliveTimeout = 65000;
         server.headersTimeout   = 66000;
         initSocket(server);

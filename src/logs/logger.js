@@ -29,13 +29,14 @@ export const logger = winston.createLogger({
 });
 
 // If we're not in production, also log to the console with human-readable formatting
-if (process.env.NODE_ENV !== 'production') {
-    logger.add(new winston.transports.Console({
-        format: winston.format.combine(
-            winston.format.colorize(),
-            winston.format.printf(({ timestamp, level, message, stack }) => {
-                return `[${timestamp}] ${level}: ${stack || message}`;
-            })
-        )
-    }));
-}
+// If we're not in production, also log to the console with human-readable formatting
+// if (process.env.NODE_ENV !== 'production') {
+//     logger.add(new winston.transports.Console({
+//         format: winston.format.combine(
+//             winston.format.colorize(),
+//             winston.format.printf(({ timestamp, level, message, stack }) => {
+//                 return `[${timestamp}] ${level}: ${stack || message}`;
+//             })
+//         )
+//     }));
+// }
