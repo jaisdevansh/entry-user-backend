@@ -16,7 +16,7 @@ export const getProfile = async (req, res, next) => {
         
         const cached = await cacheService.get(cacheKey);
         if (cached) {
-            res.set('Cache-Control', 'private, max-age=180');
+            res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
             return res.status(200).json({ success: true, data: typeof cached === 'string' ? JSON.parse(cached) : cached });
         }
 
@@ -59,7 +59,7 @@ export const getProfile = async (req, res, next) => {
         }
 
         await cacheService.set(cacheKey, user, 600);
-        res.set('Cache-Control', 'private, max-age=180');
+        res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
         res.status(200).json({ success: true, data: user });
     } catch (err) { next(err); }
 };
@@ -83,7 +83,7 @@ export const updateProfile = async (req, res, next) => {
             user = await User.findByIdAndUpdate(id, req.body, { new: true }).select('-password -refreshToken');
         }
 
-        await cacheService.delete(cacheService.formatKey('profile', id));
+        await cacheService.delete(cacheService.formatKey('profile_v2', id));
         res.status(200).json({ success: true, data: user });
     } catch (err) { next(err); }
 };

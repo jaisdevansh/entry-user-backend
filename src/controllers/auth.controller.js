@@ -325,7 +325,8 @@ export const verifyOtp = async (req, res, next) => {
             cacheService.formatKey('active_event', user._id),
             cacheService.formatKey('my-bookings', user._id),
             cacheService.formatKey('my-orders', user._id),
-            cacheService.formatKey('profile', user._id)
+            cacheService.formatKey('profile', user._id),
+            cacheService.formatKey('profile_v2', user._id)
         ];
         
         await Promise.all(cacheKeys.map(key => cacheService.delete(key)));
@@ -421,7 +422,8 @@ export const logout = async (req, res, next) => {
                 cacheService.formatKey('active_event', id),
                 cacheService.formatKey('my-bookings', id),
                 cacheService.formatKey('my-orders', id),
-                cacheService.formatKey('profile', id)
+                cacheService.formatKey('profile', id),
+                cacheService.formatKey('profile_v2', id)
             ];
             
             await Promise.all(cacheKeys.map(key => cacheService.delete(key)));
@@ -491,7 +493,8 @@ export const staffLogin = async (req, res, next) => {
             cacheService.formatKey('active_event', user._id),
             cacheService.formatKey('my-bookings', user._id),
             cacheService.formatKey('my-orders', user._id),
-            cacheService.formatKey('profile', user._id)
+            cacheService.formatKey('profile', user._id),
+            cacheService.formatKey('profile_v2', user._id)
         ];
         
         await Promise.all(cacheKeys.map(key => cacheService.delete(key)));
@@ -782,6 +785,7 @@ export const googleLogin = async (req, res, next) => {
             cacheService.formatKey('my-bookings', user._id),
             cacheService.formatKey('my-orders', user._id),
             cacheService.formatKey('profile', user._id),
+            cacheService.formatKey('profile_v2', user._id),
             `auth_status_${user._id}`
         ];
         
