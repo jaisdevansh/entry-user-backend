@@ -34,7 +34,7 @@ export const askSupport = async (req, res, next) => {
         }
 
         const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
 
         // 3. Fetch recent history for context (only fields needed by Gemini)
@@ -65,7 +65,8 @@ export const askSupport = async (req, res, next) => {
         });
 
         const result = await chat.sendMessage(message);
-        const aiResponseText = result.response.text();
+        const response = await result.response;
+        const aiResponseText = response.text();
 
         // 5. Save AI Response
         const aiMsg = await SupportMessage.create({
@@ -73,7 +74,7 @@ export const askSupport = async (req, res, next) => {
             content: aiResponseText,
             role: 'ai',
             metadata: {
-                model: "gemini-1.5-flash"
+                model: "gemini-2.5-flash"
             }
         });
 
