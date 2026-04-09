@@ -272,25 +272,30 @@ export const verifyOtp = async (req, res, next) => {
             }
         }
 
-        // ⚡ HIGH-PERFORMANCE PARALLEL LOOKUP
+        // ⚡ HIGH-PERFORMANCE PARALLEL LOOKUP - HOST PRIORITY
         if (!user) {
             const isEmail = identifier.includes('@');
             const searchPhoneRaw = !isEmail ? identifier.replace(/\s/g, '') : null;
-            const phoneBase = searchPhoneRaw ? searchPhoneRaw.slice(-10) : null; // Get last 10 digits
+            const phoneBase = searchPhoneRaw ? searchPhoneRaw.slice(-10) : null;
             
             const query = isEmail 
                 ? { email: { $regex: new RegExp(`^${identifierLower}$`, 'i') } }
                 : { phone: { $regex: new RegExp(`${phoneBase}$`) } };
 
-            const lookups = [
-                isAuthorizedAdmin ? Admin.findOne(query) : Promise.resolve(null), // Only check admin DB if authorized
-                Host.findOne(query),
-                Staff.findOne(query),
-                User.findOne(query)
-            ];
-            
-            const results = await Promise.all(lookups);
-            user = results.find(r => r !== null);
+            // Check in priority order: Admin > Host > Staff > User
+            // This ensures HOST users don't get USER role
+            if (isAuthorizedAdmin) {
+                user = await Admin.findOne(query);
+            }
+            if (!user) {
+                user = await Host.findOne(query);
+            }
+            if (!user) {
+                user = await Staff.findOne(query);
+            }
+            if (!user) {
+                user = await User.findOne(query);
+            }
         }
 
         if (!user) {
