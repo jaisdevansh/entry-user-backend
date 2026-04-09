@@ -7,7 +7,7 @@ import {
 
 import {
     getAllEvents, getEventBasic, getEventDetails, getEventTickets, getFloorPlan, getEventFull, bookEvent, getBookedTables, lockSeats, getActiveEvent, getMenuItems, getEventBooking,
-    getHostMenu, getHostGifts
+    getHostMenu, getHostGifts, checkEventsUpdates
 } from "../controllers/event.controller.js";
 
 import {
@@ -15,7 +15,7 @@ import {
 } from "../controllers/venue.controller.js";
 
 import {
-    getMyBookings, getBookingById, cancelBooking, getMyFoodOrders
+    getMyBookings, getBookingById, cancelBooking, getMyFoodOrders, checkBookingsUpdates, checkOrdersUpdates
 } from "../controllers/booking.controller.js";
 
 import {
@@ -43,11 +43,17 @@ router.put('/membership', updateMembership);
 
 // --- BOOKINGS (Guest Side) ---
 router.get('/bookings', getMyBookings);
+router.get('/bookings/check-updates', checkBookingsUpdates); // Smart refresh
 router.get('/bookings/:id', getBookingById);
 router.put('/bookings/:id/cancel', authorize('user'), cancelBooking);
 
+// --- ORDERS ---
+router.get('/orders/my', getMyFoodOrders);
+router.get('/orders/check-updates', checkOrdersUpdates); // Smart refresh
+
 // --- EVENTS (Discovery) ---
 router.get('/events', getAllEvents);
+router.get('/events/check-updates', checkEventsUpdates); // Smart refresh endpoint
 router.get('/events/:id/full', getEventFull); // ⚡ ULTRA-OPTIMIZED: Single endpoint for all event data
 router.get('/events/:id/basic', getEventBasic);
 router.get('/events/:id/details', getEventDetails);
@@ -59,7 +65,6 @@ router.get('/events/:eventId/booked-tables', getBookedTables);
 router.get('/active-event', getActiveEvent);
 router.get('/events/:eventId/menu', getMenuItems);
 router.get('/events/:eventId/my-booking', getEventBooking);
-router.get('/orders/my', getMyFoodOrders);
 
 // --- VENUES (Discovery) ---
 router.get('/venues', getAllVenues);

@@ -17,68 +17,40 @@ import { bookEventSchema } from '../validators/user.validator.js';
 
 export const getAllEvents = async (req, res, next) => {
     try {
-        const cacheKey = 'events_all_guest_v13_ultra'; // ⚡ ULTRA OPTIMIZED
-        const events = await cacheService.wrap(cacheKey, 600, async () => { // 10min cache
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 20;
+        const skip = (page - 1) * limit;
+        
+        const cacheKey = `events:list:${page}:${limit}`; // Standardized cache key
+        
+        const events = await cacheService.wrap(cacheKey, 300, async () => { // 5min cache
             const now = new Date();
             const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-            // ⚡ ULTRA OPTIMIZED: Only return minimal fields for list view
-            const results = await Event.aggregate([
-                { 
-                    $match: { 
-                        status: 'LIVE', 
-                        date: { $gte: startOfToday } 
-                    } 
-                },
-                { $sort: { date: 1 } },
-                {
-                    $lookup: {
-                        from: 'hosts',
-                        localField: 'hostId',
-                        foreignField: '_id',
-                        as: 'hostDetails'
-                    }
-                },
-                {
-                    $lookup: {
-                        from: 'users',
-                        localField: 'hostId',
-                        foreignField: '_id',
-                        as: 'userDetails'
-                    }
-                },
-                {
-                    $project: {
-                        // ⚡ ONLY essential fields for card view
-                        title: 1, 
-                        date: 1, 
-                        startTime: 1, 
-                        coverImage: 1,
-                        attendeeCount: 1,
-                        // Calculate displayPrice in DB (faster)
-                        minPrice: { $min: '$tickets.price' },
-                        totalCapacity: { $sum: '$tickets.capacity' },
-                        totalSold: { $sum: '$tickets.sold' },
-                        host: { 
-                            $ifNull: [
-                                { $arrayElemAt: ['$hostDetails', 0] }, 
-                                { $arrayElemAt: ['$userDetails', 0] }
-                            ] 
-                        }
-                    }
-                }
-            ]);
+            // ⚡ ULTRA OPTIMIZED: Minimal fields + lean() + limit
+            const results = await Event.find({ 
+                status: 'LIVE', 
+                date: { $gte: startOfToday } 
+            })
+            .select('title date startTime coverImage attendeeCount') // Only essential fields
+            .populate('hostId', 'name profileImage') // Minimal host data
+            .sort({ date: 1, isFeatured: -1 })
+            .skip(skip)
+            .limit(limit)
+            .lean(); // 3x faster
 
+            // Calculate display price and occupancy
             return results.map(e => {
-                const host = e.host;
-                const finalName = host 
-                    ? (host.name || `${host.firstName || ''} ${host.lastName || ''}`.trim())
-                    : 'Collective Underground';
-
-                const displayPrice = e.minPrice || 2500;
-                const cap = e.totalCapacity || e.attendeeCount || 100;
-                const sold = e.totalSold || 0;
-                const occupancy = Math.min(Math.round((sold / cap) * 100), 100) || (20 + Math.floor(Math.random() * 40));
+                const tickets = e.tickets || [];
+                const minPrice = tickets.length > 0 
+                    ? Math.min(...tickets.map(t => t.price)) 
+                    : 2500;
+                
+                const totalCapacity = tickets.reduce((sum, t) => sum + (t.capacity || 0), 0) || 100;
+                const totalSold = tickets.reduce((sum, t) => sum + (t.sold || 0), 0);
+                const occupancy = totalCapacity > 0 
+                    ? Math.min(Math.round((totalSold / totalCapacity) * 100), 100)
+                    : 20 + Math.floor(Math.random() * 40);
 
                 return {
                     _id: e._id,
@@ -86,19 +58,30 @@ export const getAllEvents = async (req, res, next) => {
                     date: e.date,
                     startTime: e.startTime,
                     coverImage: e.coverImage,
-                    displayPrice,
+                    displayPrice: minPrice,
                     occupancy: `${occupancy}%`,
-                    hostId: {
-                        _id: host?._id || e.hostId,
-                        name: finalName,
-                        profileImage: host?.profileImage || null
-                    }
+                    hostId: e.hostId || { name: 'Collective Underground' }
                 };
             });
         });
 
+        // Get total count for pagination
+        const total = await Event.countDocuments({ 
+            status: 'LIVE', 
+            date: { $gte: new Date().setHours(0,0,0,0) } 
+        });
+
         res.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=120');
-        res.status(200).json({ success: true, data: events });
+        res.status(200).json({ 
+            success: true, 
+            data: events,
+            pagination: {
+                page,
+                limit,
+                total,
+                pages: Math.ceil(total / limit)
+            }
+        });
     } catch (err) { next(err); }
 };
 ;
@@ -501,14 +484,17 @@ export const getActiveEvent = async (req, res, next) => {
         
         const forceRefresh = req.query.refresh === 'true';
         if (forceRefresh) {
+            console.log('🔄 [getActiveEvent] Force refresh requested, clearing cache');
             await cacheService.delete(cacheKey);
         }
         
         const cached = await cacheService.get(cacheKey);
         if (cached && !forceRefresh) {
+            console.log('✅ [getActiveEvent] Cache HIT for user:', req.user.id);
             return res.status(200).json({ success: true, data: cached });
         }
 
+        console.log('🔍 [getActiveEvent] Querying database for user:', req.user.id);
         const booking = await Booking.findOne({ 
             userId: req.user.id, 
             status: { $in: ['approved', 'active', 'checked_in'] }
@@ -520,12 +506,19 @@ export const getActiveEvent = async (req, res, next) => {
         })
         .lean();
         
+        console.log('📦 [getActiveEvent] Raw booking:', JSON.stringify(booking, null, 2));
+        
         if (booking && booking.hostId) {
             booking.hostId = booking.hostId.toString();
+            console.log('🎯 [getActiveEvent] Converted hostId to string:', booking.hostId);
             await cacheService.set(cacheKey, booking, 120);
+        } else {
+            console.log('⚠️ [getActiveEvent] No active booking found');
         }
+        
         res.status(200).json({ success: true, data: booking || null });
     } catch (err) { 
+        console.error('❌ [getActiveEvent] ERROR:', err.message);
         next(err); 
     }
 };
@@ -537,6 +530,16 @@ export const getHostMenu = async (req, res, next) => {
         if (!hostId) return res.status(200).json({ success: true, data: [] });
 
         const cacheKey = cacheService.formatKey('host_menu', hostId);
+        
+        // Check cache first
+        const cached = await cacheService.get(cacheKey);
+        if (cached) {
+            return res.status(200).json({ 
+                success: true, 
+                data: typeof cached === 'string' ? JSON.parse(cached) : cached,
+                cached: true 
+            });
+        }
 
         const SELECT = 'name price category image desc inStock';
 
@@ -562,18 +565,46 @@ export const getHostMenu = async (req, res, next) => {
 export const getHostGifts = async (req, res, next) => {
     try {
         const { hostId } = req.params;
-        if (!hostId) return res.status(200).json({ success: true, data: [] });
+        console.log('🎁 [getHostGifts] Request for hostId:', hostId);
+        
+        if (!hostId) {
+            console.log('🎁 [getHostGifts] No hostId provided');
+            return res.status(200).json({ success: true, data: [] });
+        }
 
         const cacheKey = cacheService.formatKey('host_gifts', hostId);
+        
+        // Check cache first
+        const cached = await cacheService.get(cacheKey);
+        if (cached) {
+            console.log('🎁 [getHostGifts] Cache HIT:', typeof cached === 'string' ? JSON.parse(cached).length : cached.length, 'items');
+            return res.status(200).json({ 
+                success: true, 
+                data: typeof cached === 'string' ? JSON.parse(cached) : cached,
+                cached: true 
+            });
+        }
 
+        console.log('🎁 [getHostGifts] Cache MISS, querying database...');
         let gifts = await Gift.find({ hostId, inStock: true, isDeleted: false })
             .select('name description price category image inStock')
             .sort({ category: 1 })
             .lean();
 
+        console.log('🎁 [getHostGifts] Database returned:', gifts.length, 'items');
+        
+        if (gifts.length > 0) {
+            console.log('🎁 [getHostGifts] Sample gift:', JSON.stringify(gifts[0]));
+        }
+
         await cacheService.set(cacheKey, gifts, 600);
-        res.status(200).json({ success: true, data: gifts });
-    } catch (err) { next(err); }
+        console.log('🎁 [getHostGifts] Cached for 10 minutes');
+        
+        res.status(200).json({ success: true, data: gifts, count: gifts.length });
+    } catch (err) { 
+        console.error('🎁 [getHostGifts] ERROR:', err.message);
+        next(err); 
+    }
 };
 
 export const reportEvent = async (req, res, next) => {
@@ -608,5 +639,45 @@ export const reportEvent = async (req, res, next) => {
 
     } catch (error) {
         next(error);
+    }
+};
+
+// ⚡ SMART REFRESH: Check if events have updates without fetching full data
+export const checkEventsUpdates = async (req, res, next) => {
+    try {
+        const { lastFetchedAt } = req.query;
+        
+        if (!lastFetchedAt) {
+            return res.status(200).json({ 
+                success: true, 
+                hasUpdates: true, 
+                message: 'No timestamp provided, fetch recommended' 
+            });
+        }
+
+        const lastFetchDate = new Date(parseInt(lastFetchedAt));
+        const now = new Date();
+        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+        // Check if any events were updated/created after lastFetchedAt
+        const updatedCount = await Event.countDocuments({
+            status: 'LIVE',
+            date: { $gte: startOfToday },
+            $or: [
+                { updatedAt: { $gt: lastFetchDate } },
+                { createdAt: { $gt: lastFetchDate } }
+            ]
+        });
+
+        const hasUpdates = updatedCount > 0;
+
+        res.status(200).json({
+            success: true,
+            hasUpdates,
+            lastUpdated: now.getTime(),
+            message: hasUpdates ? 'New updates available' : 'No updates'
+        });
+    } catch (err) {
+        next(err);
     }
 };

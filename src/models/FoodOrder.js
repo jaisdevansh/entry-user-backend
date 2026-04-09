@@ -30,14 +30,17 @@ const foodOrderSchema = new mongoose.Schema({
     completedAt: { type: Date }
 }, { timestamps: true });
 
-foodOrderSchema.index({ status: 1, createdAt: -1 });
-foodOrderSchema.index({ userId: 1, createdAt: -1 });
+// ⚡ PRODUCTION-READY INDEXES - Optimized for all query patterns
+foodOrderSchema.index({ userId: 1, createdAt: -1 }); // User orders (CRITICAL)
+foodOrderSchema.index({ userId: 1, status: 1, createdAt: -1 }); // User active orders
 foodOrderSchema.index({ eventId: 1, createdAt: -1 });
-foodOrderSchema.index({ hostId: 1, createdAt: -1 }); // Fast lookup for host orders
+foodOrderSchema.index({ hostId: 1, createdAt: -1 });
+foodOrderSchema.index({ hostId: 1, status: 1, createdAt: -1 }); // Host dashboard
+foodOrderSchema.index({ status: 1, createdAt: -1 });
 foodOrderSchema.index({ assignedStaffId: 1 });
-// Waiter queue indexes for high-performance zone-based filtering
-foodOrderSchema.index({ status: 1, paymentStatus: 1, assignedStaffId: 1 });       // available orders
-foodOrderSchema.index({ status: 1, paymentStatus: 1, zone: 1, assignedStaffId: 1 }); // zone-filtered available
-foodOrderSchema.index({ assignedStaffId: 1, status: 1 });                          // my active orders
+foodOrderSchema.index({ status: 1, paymentStatus: 1, assignedStaffId: 1 }); // Available orders
+foodOrderSchema.index({ status: 1, paymentStatus: 1, zone: 1, assignedStaffId: 1 }); // Zone-filtered
+foodOrderSchema.index({ assignedStaffId: 1, status: 1 }); // Staff active orders
+foodOrderSchema.index({ updatedAt: -1 }); // Smart refresh check
 
 export const FoodOrder = mongoose.model('FoodOrder', foodOrderSchema);

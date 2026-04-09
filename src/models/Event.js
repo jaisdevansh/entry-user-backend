@@ -60,11 +60,16 @@ const eventSchema = new mongoose.Schema({
     bookingOpenDate: { type: Date }
 }, { timestamps: true });
 
-// Compound indexes for fast querying
+// ⚡ PRODUCTION-READY INDEXES - Optimized for all query patterns
 eventSchema.index({ hostId: 1, createdAt: -1 });
 eventSchema.index({ hostId: 1, status: 1 });
-eventSchema.index({ status: 1, date: 1 });
-eventSchema.index({ title: 'text', description: 'text' }); // ⚡ Rocket-speed event search
+eventSchema.index({ status: 1, date: 1 }); // Discovery queries (CRITICAL)
+eventSchema.index({ status: 1, isFeatured: 1, date: 1 }); // Featured events
+eventSchema.index({ status: 1, isTrending: 1, date: 1 }); // Trending events
+eventSchema.index({ 'locationData.lat': 1, 'locationData.lng': 1 }); // Geo queries
+eventSchema.index({ title: 'text', description: 'text' }); // Full-text search
+eventSchema.index({ createdAt: -1 }); // Recent events
+eventSchema.index({ views: -1 }); // Popular events
 
 
 export const Event = mongoose.model('Event', eventSchema);

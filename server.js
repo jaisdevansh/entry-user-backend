@@ -35,28 +35,92 @@ import walletRoutes         from './src/routes/wallet.routes.js';
 import couponRoutes         from './src/routes/coupon.routes.js';
 import referralRewardRoutes from './src/routes/referralReward.routes.js';
 import supportRoutes        from './src/routes/support.routes.js';
-import { errorHandler }     from './src/middleware/error.js';
+import { errorHandler, notFoundHandler } from './src/middleware/error.js';
 
 // ── App Setup ─────────────────────────────────────────────────────────────────
 const app = express();
 app.set('trust proxy', 1);
-app.use(helmet());
+
+// ⚡ PRODUCTION SECURITY - Helmet with strict CSP
+app.use(helmet({
+    contentSecurityPolicy: {
+        directives: {
+            defaultSrc: ["'self'"],
+            styleSrc: ["'self'", "'unsafe-inline'"],
+            scriptSrc: ["'self'"],
+            imgSrc: ["'self'", "data:", "https:"],
+        },
+    },
+    hsts: {
+        maxAge: 31536000,
+        includeSubDomains: true,
+        preload: true
+    }
+}));
+
 app.use(mongoSanitize());
 app.use(xss());
 app.use(compression());
-app.use(cors({ origin: '*', methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'] }));
+
+// ⚡ PRODUCTION CORS - Whitelist specific origins
+const allowedOrigins = process.env.ALLOWED_ORIGINS 
+    ? process.env.ALLOWED_ORIGINS.split(',')
+    : ['http://localhost:8081', 'http://localhost:19000', 'exp://192.168.0.0/--/']; // Dev fallback
+
+app.use(cors({
+    origin: (origin, callback) => {
+        // Allow requests with no origin (mobile apps, Postman)
+        if (!origin) return callback(null, true);
+        
+        // Check if origin is in whitelist or matches Expo pattern
+        if (allowedOrigins.includes(origin) || origin.startsWith('exp://')) {
+            callback(null, true);
+        } else {
+            logger.warn(`[CORS] Blocked origin: ${origin}`);
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
+}));
 app.options('*', cors());
 
-// Rate Limiters
-const globalLimiter = rateLimit({ windowMs: 1 * 60 * 1000, max: 100, message: { success: false, message: 'Too many requests' } });
-const loginLimiter = rateLimit({ windowMs: 1 * 60 * 1000, max: 5, message: { success: false, message: 'Too many login attempts' } });
-const bookingLimiter = rateLimit({ windowMs: 1 * 60 * 1000, max: 10, message: { success: false, message: 'Too many booking attempts' } });
+// ⚡ PRODUCTION RATE LIMITING - Smarter limits
+const globalLimiter = rateLimit({ 
+    windowMs: 1 * 60 * 1000, 
+    max: 200, // Increased from 100 for production
+    message: { success: false, message: 'Too many requests, please try again later' },
+    standardHeaders: true,
+    legacyHeaders: false,
+    skipSuccessfulRequests: true, // Don't count successful requests
+});
+
+const loginLimiter = rateLimit({ 
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 10, // Increased from 5 to allow legitimate retries
+    message: { success: false, message: 'Too many login attempts, please try again in 15 minutes' },
+    skipSuccessfulRequests: true, // Don't count successful logins
+});
+
+const bookingLimiter = rateLimit({ 
+    windowMs: 1 * 60 * 1000, 
+    max: 20, // Increased from 10
+    message: { success: false, message: 'Too many booking attempts, please slow down' },
+    skipSuccessfulRequests: true,
+});
 
 app.use(globalLimiter);
 
 // ⚡ HTTP Keep-Alive
 app.use((req, res, next) => {
     res.set("Connection", "keep-alive");
+    next();
+});
+
+// ⚡ REQUEST TIMEOUT - Prevent hanging requests
+app.use((req, res, next) => {
+    req.setTimeout(30000); // 30 seconds
+    res.setTimeout(30000);
     next();
 });
 
@@ -67,13 +131,26 @@ app.use((req, res, next) => {
         try {
             const payloadSize = JSON.stringify(data).length;
             if (payloadSize > 50000) {
-                // console.warn(`[PERF ALERT] Large response detected: ${(payloadSize / 1024).toFixed(2)}KB on ${req.method} ${req.originalUrl}`);
+                logger.warn(`[PERF] Large response: ${(payloadSize / 1024).toFixed(2)}KB on ${req.method} ${req.originalUrl}`);
             }
         } catch (err) {}
         return originalJson.call(this, data);
     };
     next();
 });
+
+// ⚡ REQUEST LOGGING - Production-safe
+app.use((req, res, next) => {
+    const start = Date.now();
+    res.on('finish', () => {
+        const duration = Date.now() - start;
+        if (duration > 1000) {
+            logger.warn(`[SLOW API] ${req.method} ${req.originalUrl} - ${duration}ms`);
+        }
+    });
+    next();
+});
+
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(cookieParser());
@@ -105,7 +182,10 @@ app.use('/api/v1/coupons',          couponRoutes);
 app.use('/api/v1/referral',         referralRewardRoutes);
 app.use('/invite',                  referralRewardRoutes);
 
-app.use((req, res) => res.status(404).json({ success: false, message: 'Endpoint not found' }));
+// ⚡ 404 Handler - Must be after all routes
+app.use(notFoundHandler);
+
+// ⚡ Global Error Handler - Must be last
 app.use(errorHandler);
 
 // ── DB + Start ────────────────────────────────────────────────────────────────
@@ -151,5 +231,24 @@ const startServer = async () => {
 };
 
 startServer();
-process.on('uncaughtException',  (err) => { logger.error('Uncaught Exception',  err); process.exit(1); });
-process.on('unhandledRejection', (err) => { logger.error('Unhandled Rejection', err); process.exit(1); });
+
+// ⚡ PRODUCTION ERROR HANDLERS - Prevent crashes
+process.on('uncaughtException', (err) => { 
+    logger.error('💥 UNCAUGHT EXCEPTION - Shutting down gracefully', err); 
+    process.exit(1); 
+});
+
+process.on('unhandledRejection', (err) => { 
+    logger.error('💥 UNHANDLED REJECTION - Shutting down gracefully', err); 
+    process.exit(1); 
+});
+
+process.on('SIGTERM', () => {
+    logger.info('👋 SIGTERM received - Shutting down gracefully');
+    process.exit(0);
+});
+
+process.on('SIGINT', () => {
+    logger.info('👋 SIGINT received - Shutting down gracefully');
+    process.exit(0);
+});

@@ -50,13 +50,16 @@ userSchema.methods.comparePassword = async function (candidatePassword) {
     return await bcrypt.compare(candidatePassword, this.password);
 };
 
-// High performance indexes
+// ⚡ PRODUCTION-READY INDEXES - Optimized for auth and queries
+userSchema.index({ phone: 1 }, { unique: true, sparse: true }); // Auth (CRITICAL)
+userSchema.index({ email: 1 }, { unique: true, sparse: true }); // Auth (CRITICAL)
+userSchema.index({ role: 1, isActive: 1 }); // Auth middleware (CRITICAL)
 userSchema.index({ role: 1 });
 userSchema.index({ isActive: 1 });
 userSchema.index({ createdAt: -1 });
 userSchema.index({ onboardingCompleted: 1 });
 userSchema.index({ hostId: 1, role: 1 });
-userSchema.index({ isActive: 1, role: 1 }); // Composed for Admin Filtering
-userSchema.index({ name: 'text', email: 'text', username: 'text', phone: 'text' }); // 🚀 Global search index
+userSchema.index({ name: 'text', email: 'text', username: 'text', phone: 'text' }); // Full-text search
+userSchema.index({ updatedAt: -1 }); // Smart refresh check
 
 export const User = mongoose.model('User', userSchema);

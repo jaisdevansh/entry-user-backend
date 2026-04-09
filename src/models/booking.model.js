@@ -21,14 +21,18 @@ const bookingSchema = new mongoose.Schema({
     paymentStatus: { type: String, enum: ['pending', 'paid'], default: 'pending' }
 }, { timestamps: true });
 
+// ⚡ PRODUCTION-READY INDEXES - Optimized for all query patterns
 bookingSchema.index({ userId: 1, createdAt: -1 });
+bookingSchema.index({ userId: 1, status: 1, createdAt: -1 }); // User bookings (CRITICAL)
 bookingSchema.index({ hostId: 1, createdAt: -1 });
+bookingSchema.index({ hostId: 1, status: 1, createdAt: -1 }); // Host dashboard
 bookingSchema.index({ eventId: 1, status: 1 });
 bookingSchema.index({ eventId: 1, tableId: 1 });
 bookingSchema.index({ eventId: 1, seatIds: 1 });
-bookingSchema.index({ status: 1, paymentStatus: 1 }); // Required for Revenue aggregation
-bookingSchema.index({ createdAt: -1 }); // Global sorting
-bookingSchema.index({ paymentStatus: 1 }); // Revenue counting
+bookingSchema.index({ status: 1, paymentStatus: 1 }); // Revenue aggregation
+bookingSchema.index({ paymentStatus: 1, status: 1 }); // Paid bookings
+bookingSchema.index({ createdAt: -1 }); // Recent bookings
+bookingSchema.index({ updatedAt: -1 }); // Smart refresh check
 
 
 export const Booking = mongoose.model('Booking', bookingSchema);
