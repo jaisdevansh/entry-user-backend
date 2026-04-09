@@ -146,7 +146,8 @@ export const getEventBasic = async (req, res, next) => {
             item.isLocationMasked = true;
         }
 
-        await cacheService.set(cacheKey, item, 600);
+        // Fire and forget cache write to save response time!
+        cacheService.set(cacheKey, item, 600).catch(console.error);
         res.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=120');
         res.status(200).json({ success: true, data: item });
     } catch (err) { next(err); }
@@ -172,7 +173,7 @@ export const getEventDetails = async (req, res, next) => {
             
         if (!event) return res.status(404).json({ success: false, message: 'Event not found' });
 
-        await cacheService.set(cacheKey, event, 300);
+        cacheService.set(cacheKey, event, 300).catch(console.error);
         res.set('Cache-Control', 'public, max-age=180, stale-while-revalidate=60');
         return res.status(200).json({ success: true, data: event });
     } catch (err) { next(err); }
@@ -196,7 +197,7 @@ export const getEventTickets = async (req, res, next) => {
             floors: event.floors || []
         };
         
-        await cacheService.set(cacheKey, data, 300);
+        cacheService.set(cacheKey, data, 300).catch(console.error);
         res.set('Cache-Control', 'public, max-age=180, stale-while-revalidate=60');
         res.status(200).json({ success: true, data });
     } catch (err) { next(err); }
@@ -304,8 +305,8 @@ export const getEventFull = async (req, res, next) => {
         const payloadSize = JSON.stringify(data).length;
         console.log(`[⚡ PAYLOAD] Size: ${(payloadSize / 1024).toFixed(2)}KB`);
 
-        // ⚡ STEP 7: Cache for 5 minutes
-        await cacheService.set(cacheKey, data, 300);
+        // ⚡ STEP 7: Cache for 5 minutes (Fire-and-forget so it doesn't block API)
+        cacheService.set(cacheKey, data, 300).catch(console.error);
         
         console.log(`[⚡ OPTIMIZED] getEventFull (DB): ${Date.now() - startTime}ms`);
         res.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=120');
@@ -367,9 +368,25 @@ export const getFloorPlan = async (req, res, next) => {
 
 export const lockSeats = async (req, res, next) => {
     try {
-        // Mock Seat Management Orchestration
-        const { eventId, seatIds } = req.body;
-        res.status(200).json({ success: true, lockId: `LD_${Date.now()}` });
+        const { eventId, seatIds, guestCount } = req.body;
+        
+        // ⚡ ATOMIC: Distributed Redis Lock for Seat Selection
+        const lockId = `lock_${eventId}_${req.user.id}_${Date.now()}`;
+        
+        // Check if seats are already locked
+        for (const seatId of seatIds) {
+            const isLocked = await cacheService.get(`seat_lock_${eventId}_${seatId}`);
+            if (isLocked) {
+                return res.status(409).json({ success: false, message: 'Wait, some seats were just taken. Refreshing map.', code: 'SEATS_UNAVAILABLE' });
+            }
+        }
+        
+        // Lock seats for 5 minutes
+        await Promise.all(seatIds.map(seatId => 
+            cacheService.set(`seat_lock_${eventId}_${seatId}`, req.user.id, 300)
+        ));
+
+        res.status(200).json({ success: true, message: 'Seats locked for 5 minutes', lockId });
     } catch (err) { next(err); }
 };
 
@@ -379,6 +396,16 @@ export const bookEvent = async (req, res, next) => {
         
         const event = await Event.findById(eventId).select('hostId title').lean();
         if (!event) return res.status(404).json({ success: false, message: 'Event not found' });
+
+        // ⚡ ATOMIC: Verify lock ownership before booking
+        if (seatIds && seatIds.length > 0) {
+            for (const seatId of seatIds) {
+                const lockOwner = await cacheService.get(`seat_lock_${eventId}_${seatId}`);
+                if (lockOwner && lockOwner !== req.user.id) {
+                    return res.status(409).json({ success: false, message: 'Session expired. Seats were taken by someone else.' });
+                }
+            }
+        }
 
         const booking = await Booking.create({
             userId: req.user.id,
@@ -392,6 +419,11 @@ export const bookEvent = async (req, res, next) => {
             paymentStatus: 'paid',
             status: 'active'
         });
+
+        // ⚡ RELEASE LOCKS AFTER SUCCESSFUL BOOKING
+        if (seatIds && seatIds.length > 0) {
+            await Promise.all(seatIds.map(seatId => cacheService.delete(`seat_lock_${eventId}_${seatId}`)));
+        }
 
         // Async Non-blocking Side-Effect: Notify Host + Clear Caches
         (async () => {
@@ -505,8 +537,6 @@ export const getHostMenu = async (req, res, next) => {
         if (!hostId) return res.status(200).json({ success: true, data: [] });
 
         const cacheKey = cacheService.formatKey('host_menu', hostId);
-        const cached = await cacheService.get(cacheKey);
-        if (cached) return res.status(200).json({ success: true, data: typeof cached === 'string' ? JSON.parse(cached) : cached });
 
         const SELECT = 'name price category image desc inStock';
 
@@ -535,10 +565,8 @@ export const getHostGifts = async (req, res, next) => {
         if (!hostId) return res.status(200).json({ success: true, data: [] });
 
         const cacheKey = cacheService.formatKey('host_gifts', hostId);
-        const cached = await cacheService.get(cacheKey);
-        if (cached) return res.status(200).json({ success: true, data: typeof cached === 'string' ? JSON.parse(cached) : cached });
 
-        const gifts = await Gift.find({ hostId, inStock: true, isDeleted: false })
+        let gifts = await Gift.find({ hostId, inStock: true, isDeleted: false })
             .select('name description price category image inStock')
             .sort({ category: 1 })
             .lean();

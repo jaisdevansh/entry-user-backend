@@ -66,20 +66,20 @@ export const getMyFoodOrders = async (req, res, next) => {
         const cacheKey = cacheService.formatKey('my-orders', req.user.id);
         const cached = await cacheService.get(cacheKey);
         if (cached) {
-            res.set('Cache-Control', 'private, max-age=60');
+            res.set('Cache-Control', 'private, max-age=30');
             return res.status(200).json({ success: true, data: typeof cached === 'string' ? JSON.parse(cached) : cached });
         }
 
-        // ⚡ OPTIMIZED: Limit to recent orders only
+        // ⚡ OPTIMIZED: Limit 10, strictly lean
         const orders = await FoodOrder.find({ userId: req.user.id })
-            .select('items totalPrice status createdAt eventId') // Only essential fields
-            .populate('eventId', 'title date')
+            .select('eventId totalPrice createdAt status items') // Keep to < 5 fields
+            .populate({ path: 'eventId', select: 'title' })
             .sort({ createdAt: -1 })
-            .limit(30) // ⚡ Only recent 30 orders
+            .limit(10) // ⚡ Reduced to 10 as per rules
             .lean();
 
-        await cacheService.set(cacheKey, orders, 180); // 3 min cache
-        res.set('Cache-Control', 'private, max-age=60');
+        await cacheService.set(cacheKey, orders, 30); // 30 sec cache
+        res.set('Cache-Control', 'private, max-age=30');
         res.status(200).json({ success: true, data: orders });
     } catch (err) { next(err); }
 };

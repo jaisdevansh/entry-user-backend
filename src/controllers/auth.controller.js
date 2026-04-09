@@ -35,7 +35,12 @@ const getUniqueUsername = async (name) => {
 const generateTokens = (user) => {
     const displayName = user.name || (user.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : '');
     const accessToken = jwt.sign(
-        { userId: user._id, role: user.role, hostId: user.hostId || null },
+        { 
+            userId: user._id, 
+            role: user.role, 
+            hostId: user.hostId || null,
+            tokenVersion: user.tokenVersion || 0
+        },
         process.env.JWT_SECRET || 'supersecretkey123',
         { expiresIn: '30d' }  // ⚡ 30 days for persistent sessions
     );
@@ -716,24 +721,22 @@ export const googleLogin = async (req, res, next) => {
 
         const emailLower = email.toLowerCase();
 
-        // 🔒 SECURITY: Google login is ONLY for regular users, not admin/host/staff
-        let user = await User.findOne({ email: { $regex: new RegExp(`^${emailLower}$`, 'i') } });
+        // 🔒 SECURITY: Find by googleId ONLY
+        let user = await User.findOne({ googleId });
         
         // 🚨 BLOCK: If email exists in Admin/Host/Staff, reject Google login
         const [adminExists, hostExists, staffExists] = await Promise.all([
-            Admin.findOne({ email: { $regex: new RegExp(`^${emailLower}$`, 'i') } }),
-            Host.findOne({ email: { $regex: new RegExp(`^${emailLower}$`, 'i') } }),
-            Staff.findOne({ email: { $regex: new RegExp(`^${emailLower}$`, 'i') } }),
+            Admin.findOne({ email: { $regex: new RegExp(`^${emailLower}$`, 'i') } }).lean(),
+            Host.findOne({ email: { $regex: new RegExp(`^${emailLower}$`, 'i') } }).lean(),
+            Staff.findOne({ email: { $regex: new RegExp(`^${emailLower}$`, 'i') } }).lean(),
         ]);
         
         if (adminExists || hostExists || staffExists) {
-            return res.status(403).json({ 
-                success: false, 
-                message: 'This email is registered as Admin/Host/Staff. Please use the appropriate login method.' 
-            });
+            return res.status(403).json({ error: 'This email is registered as Admin/Host/Staff. Please use the appropriate login method.' });
         }
 
         if (!user) {
+            // ✅ Create if not exists
             const tempId = new mongoose.Types.ObjectId();
             const referralCode = Math.random().toString(36).substring(2, 8).toUpperCase()
                 + tempId.toString().substring(18, 22).toUpperCase();
@@ -754,54 +757,47 @@ export const googleLogin = async (req, res, next) => {
                 onboardingCompleted: true,
                 isActive: true,
                 referralCode,
+                tokenVersion: 1
             });
-            await user.save();
-        } else {
-            const updates = {};
-            if (!user.profileImage && picture) updates.profileImage = picture;
-            if (!user.googleId) updates.googleId = googleId;
-            if (!user.username) updates.username = await getUniqueUsername(name || user.name || 'user');
-            if (Object.keys(updates).length > 0) {
-                await user.constructor.updateOne({ _id: user._id }, { $set: updates });
-                Object.assign(user, updates);
-            }
-        }
+        } 
 
         if (!user.isActive) {
-            return res.status(403).json({ success: false, message: 'Your account has been deactivated' });
+            return res.status(403).json({ error: 'Unauthorized' });
         }
 
+        // ✅ FORCE role = user (prevent leakage)
+        user.role = "user";
+        
+        // ✅ Increment tokenVersion (invalidate old tokens)
+        user.tokenVersion = (user.tokenVersion || 0) + 1;
+
         const { accessToken, refreshToken } = generateTokens(user);
+        
+        user.refreshToken = refreshToken;
+        await user.save();
         
         // Clear all user-specific caches on login
         const cacheKeys = [
             cacheService.formatKey('active_event', user._id),
             cacheService.formatKey('my-bookings', user._id),
             cacheService.formatKey('my-orders', user._id),
-            cacheService.formatKey('profile', user._id)
+            cacheService.formatKey('profile', user._id),
+            `auth_status_${user._id}`
         ];
         
         await Promise.all(cacheKeys.map(key => cacheService.delete(key)));
-        
-        await user.constructor.updateOne({ _id: user._id }, { $set: { refreshToken } });
 
-        res.status(200).json({
+        return res.json({
             success: true,
-            message: 'Google login successful',
-            data: {
+            user: {
                 id: user._id,
                 name: user.name || name,
-                email: user.email,
-                role: user.role,
-                staffRole: user.staffType || null,
-                hostId: user.hostId || null,
+                role: 'user',
                 profileImage: user.profileImage || picture,
-                hostStatus: user.hostStatus || null,
-                username: user.username || null,
-                onboardingCompleted: true,
-                accessToken,
-                refreshToken,
-            }
+                onboardingCompleted: user.onboardingCompleted
+            },
+            token: accessToken,
+            refreshToken
         });
     } catch (err) {
         next(err);

@@ -190,7 +190,9 @@ export const getMenu = async (req, res) => {
         const cacheKey = cacheService.formatKey('menu', eventId);
         
         const items = await cacheService.wrap(cacheKey, 300, async () => {
-            return await MenuItem.find({ eventId }).lean();
+            return await MenuItem.find({ eventId })
+                .select('name price category desc inStock image')
+                .lean();
         });
         // Fallback fake items if no DB configuration
         if (items.length === 0) {
@@ -218,13 +220,17 @@ export const getVenueGifts = async (req, res) => {
             
             if (event?.hostId) {
                 dbGifts = await Gift.find({ hostId: event.hostId, isDeleted: false, inStock: true })
+                    .select('name description price category image inStock')
                     .sort({ sortOrder: 1 })
                     .lean();
             }
 
             // DEV OVERRIDE: If no specific gifts, show what we have in DB
             if (dbGifts.length === 0) {
-                dbGifts = await Gift.find({ isDeleted: false, inStock: true }).limit(20).lean();
+                dbGifts = await Gift.find({ isDeleted: false, inStock: true })
+                    .select('name description price category image inStock')
+                    .limit(20)
+                    .lean();
             }
 
             // FALLBACK TO REAL DATA: If DB is empty, provide premium mock catalog instantly

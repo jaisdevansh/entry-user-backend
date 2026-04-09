@@ -53,34 +53,44 @@ export const protect = async (req, res, next) => {
         
         let userRole = decoded.role;
         let isActive = true;
+        let tokenVersion = decoded.tokenVersion || 0;
 
         if (!cached) {
-            const projection = 'role isActive';
-             // Atomic, fast lookup — Admin first to avoid User fallback for ADMIN role
-            const user = await Admin.findById(decoded.userId).select(projection).lean() ||
-                   await Host.findById(decoded.userId).select(projection).lean() ||
-                   await Staff.findById(decoded.userId).select(projection).lean() ||
-                   await User.findById(decoded.userId).select(projection).lean();
+            const projection = 'role isActive tokenVersion';
+             // ⚡ STRICT ROLE ISOLATION: Only check the User model
+            const user = await User.findById(decoded.userId).select(projection).lean();
             
             if (user) {
                 userRole = user.role;
                 isActive = user.isActive;
-                await cacheService.set(CACHE_KEY, { role: userRole, isActive }, 120); // 2 min cache
+                tokenVersion = user.tokenVersion || 0;
+                await cacheService.set(CACHE_KEY, { role: userRole, isActive, tokenVersion }, 120); // 2 min cache
             } else {
                 return res.status(401).json({ success: false, message: 'Record missing from registry.' });
             }
         } else {
             userRole = cached.role;
             isActive = cached.isActive;
+            tokenVersion = cached.tokenVersion || 0;
         }
 
         if (!isActive) {
             return res.status(401).json({ success: false, message: 'Your administrative session has been revoked.' });
         }
 
+        // ✅ Check tokenVersion (invalidate old sessions)
+        if (decoded.tokenVersion !== undefined && decoded.tokenVersion !== tokenVersion) {
+            return res.status(401).json({ success: false, error: 'Session expired', message: 'Session expired' });
+        }
+
         // 🛠️ FIX: Standardize User ID across all consumers (id, _id, userId)
         const userId = decoded.userId || decoded.id || decoded._id;
         
+        // ⚡ STRICT ROLE ISOLATION ENFORCEMENT
+        if (userRole !== 'user') {
+            return res.status(403).json({ success: false, message: 'Unauthorized. Area restricted to Users only.' });
+        }
+
         req.user = { 
             ...decoded, 
             id: userId, 

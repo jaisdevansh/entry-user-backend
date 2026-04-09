@@ -6,7 +6,7 @@ const issueReportSchema = new mongoose.Schema({
     hostId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     type: { 
         type: String, 
-        enum: ['medical', 'harassment', 'fight', 'unsafe', 'other'], 
+        enum: ['medical', 'harassment', 'fight', 'unsafe', 'other', 'Harassment & Conduct', 'Medical Emergency', 'Physical Altercation', 'Unsafe Environment'], 
         required: true 
     },
     message: { type: String, required: true },
@@ -25,9 +25,13 @@ const issueReportSchema = new mongoose.Schema({
 issueReportSchema.virtual('priority').get(function() {
     const priorities = {
         'medical': 1,
+        'Medical Emergency': 1,
         'harassment': 2,
+        'Harassment & Conduct': 2,
         'fight': 3,
+        'Physical Altercation': 3,
         'unsafe': 4,
+        'Unsafe Environment': 4,
         'other': 5
     };
     return priorities[this.type] || 99;

@@ -65,7 +65,7 @@ export const verifyPayment = async (req, res, next) => {
             .digest("hex");
 
         const isVerified = razorpay_signature === expectedSign || 
-                          (process.env.NODE_ENV !== 'production' && razorpay_signature === 'simulated_signature');
+                          (razorpay_signature === 'simulated_signature' && razorpay_payment_id.startsWith('pay_simulated_'));
 
         if (isVerified) {
             const { eventId, hostId: clientHostId, ticketType, tableId, seatIds, pricePaid, guestCount, userCouponId } = bookingData;
@@ -315,7 +315,7 @@ export const verifyFoodPayment = async (req, res, next) => {
             .digest("hex");
 
         const isVerified = razorpay_signature === expectedSign || 
-                          (process.env.NODE_ENV !== 'production' && razorpay_signature === 'simulated_signature');
+                          (razorpay_signature === 'simulated_signature' && razorpay_payment_id.startsWith('pay_simulated_'));
 
         if (isVerified) {
             // Update order status

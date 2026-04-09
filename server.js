@@ -8,6 +8,8 @@ import compression from 'compression';
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import passport from 'passport';
+import mongoSanitize from 'express-mongo-sanitize';
+import xss from 'xss-clean';
 
 dotenv.config();
 
@@ -38,10 +40,39 @@ import { errorHandler }     from './src/middleware/error.js';
 const app = express();
 app.set('trust proxy', 1);
 app.use(helmet());
+app.use(mongoSanitize());
+app.use(xss());
 app.use(compression());
 app.use(cors({ origin: '*', methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'] }));
 app.options('*', cors());
-app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 1000, message: { success: false, message: 'Too many requests' } }));
+
+// Rate Limiters
+const globalLimiter = rateLimit({ windowMs: 1 * 60 * 1000, max: 100, message: { success: false, message: 'Too many requests' } });
+const loginLimiter = rateLimit({ windowMs: 1 * 60 * 1000, max: 5, message: { success: false, message: 'Too many login attempts' } });
+const bookingLimiter = rateLimit({ windowMs: 1 * 60 * 1000, max: 10, message: { success: false, message: 'Too many booking attempts' } });
+
+app.use(globalLimiter);
+
+// ⚡ HTTP Keep-Alive
+app.use((req, res, next) => {
+    res.set("Connection", "keep-alive");
+    next();
+});
+
+// ⚡ Global Response Size Monitoring
+app.use((req, res, next) => {
+    const originalJson = res.json;
+    res.json = function(data) {
+        try {
+            const payloadSize = JSON.stringify(data).length;
+            if (payloadSize > 50000) {
+                console.warn(`[PERF ALERT] Large response detected: ${(payloadSize / 1024).toFixed(2)}KB on ${req.method} ${req.originalUrl}`);
+            }
+        } catch (err) {}
+        return originalJson.call(this, data);
+    };
+    next();
+});
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(cookieParser());
@@ -53,9 +84,12 @@ app.get('/',       (_, res) => res.json({ status: 'active', service: 'user-api',
 app.get('/health', (_, res) => res.status(200).json({ success: true, service: 'user-api', ts: new Date().toISOString() }));
 
 // ── Routes ────────────────────────────────────────────────────────────────────
+app.use('/auth/login', loginLimiter);
 app.use('/auth',                    authRoutes);
+app.use('/api/auth/login', loginLimiter);
 app.use('/api/auth',                authRoutes);
 app.use('/user',                    userRoutes);
+app.use('/user/events/book', bookingLimiter);
 app.use('/discovery',               discoveryRoutes);
 app.use('/support',                 supportRoutes);
 app.use('/api/v1/support',          aiRoutes);

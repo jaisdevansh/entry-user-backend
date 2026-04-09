@@ -4,6 +4,8 @@ import bcrypt from 'bcryptjs';
 const userSchema = new mongoose.Schema({
     name: { type: String, default: '' },
     gender: { type: String, enum: ['Male', 'Female', 'Other', ''], default: '' },
+    googleId: { type: String, unique: true, sparse: true },
+    tokenVersion: { type: Number, default: 0 },
     email: { type: String, unique: true, sparse: true },
     password: { type: String },
     phone: { type: String, unique: true, sparse: true },
