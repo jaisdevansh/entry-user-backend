@@ -1,0 +1,8 @@
+﻿Firebase Admin SDK: Initialized successfully Γ£à
+[Cache Engine] Upstash Redis Hybrid Layer Active Γ£à
+[NotificationService] Push Gateway Ready via Central Config Γ£à
+[2026-04-08 01:54:10] [32minfo[39m: Γ£ö MongoDB connected (user-api)
+[Location Reveal] Initializing background auto-reveal worker (Every 60s)
+[EscalationService] Auto-escalation monitor started (10 min window)
+[2026-04-08 01:54:10] [32minfo[39m: ≡ƒÜÇ User API on port 3000
+[2026-04-08 01:54:13] [33mwarn[39m: [Cache] Cannot find module 'C:\Users\devan\Downloads\stitch_curated_discovery\codebase\backend-user\src\src\services\cache.service.js' imported from C:\Users\devan\Downloads\stitch_curated_discovery\codebase\backend-user\server.js

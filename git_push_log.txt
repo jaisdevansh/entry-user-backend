@@ -1,0 +1,28 @@
+﻿git : remote: 
+Permission to jaisdevans
+h2004-gif/user-.git 
+denied to jaisdevansh.
+At line:1 char:1
++ git push -u origin 
+main --force 2>&1 | 
+Out-File 
+"git_push_log.txt" -E 
+...
++ ~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~
+    + CategoryInfo      
+        : NotSpecified: 
+(r    emote: 
+Permiss...to j    
+aisdevansh.:String) [   
+ ], RemoteException
+    + 
+FullyQualifiedError    
+Id : NativeCommandErr   
+ or
+ 
+fatal: unable to access 
+'https://github.com/jais
+devansh2004-gif/user-.gi
+t/': The requested URL 
+returned error: 403
