@@ -145,12 +145,16 @@ export const initSocket = (server) => {
 
             // Get sender info for notification
             let senderName = 'Someone';
+            let senderImage = '';
             try {
                 const { User } = await import('../models/user.model.js');
-                const sender = await User.findById(userId).select('name').lean();
-                if (sender) senderName = sender.name;
+                const sender = await User.findById(userId).select('name profileImage').lean();
+                if (sender) {
+                    senderName = sender.name;
+                    senderImage = sender.profileImage || '';
+                }
             } catch (err) {
-                console.warn('⚠️ [send_message] Could not fetch sender name:', err.message);
+                console.warn('⚠️ [send_message] Could not fetch sender info:', err.message);
             }
 
             // Emit to receiver immediately if online for sub-10ms delivery
@@ -165,7 +169,8 @@ export const initSocket = (server) => {
                     content,
                     timestamp,
                     isRead: false,
-                    senderName
+                    senderName,
+                    senderImage
                 };
                 console.log('📤 [send_message] Emitting to receiver:', { receiverId, socketIds: Array.from(receiverSockets), payload });
                 
