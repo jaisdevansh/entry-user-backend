@@ -34,16 +34,30 @@ export const getNearbyUsers = async (req, res) => {
                 userId: { $ne: myUserId },
                 visibility: true,
                 lastSeen: { $gte: thirtyMinsAgo }
-            }).populate('userId', 'name profileImage gender tags').lean();
+            }).populate('userId', 'name username profileImage gender tags').lean();
         });
+
+        console.log('👥 [getNearbyUsers] Found presences:', presences.length);
+        if (presences.length > 0) {
+            console.log('📋 [getNearbyUsers] First user:', {
+                name: presences[0].userId?.name,
+                username: presences[0].userId?.username,
+                visibility: presences[0].visibility,
+                lat: presences[0].lat,
+                lng: presences[0].lng
+            });
+        }
 
         // Apply privacy offset mapping
         const processed = presences.map(p => {
             const { lat, lng } = applyPrivacyOffset(p.lat, p.lng);
             return {
                 id: p.userId._id,
+                _id: p.userId._id,
                 name: p.userId.name,
+                username: p.userId.username,
                 image: p.userId.profileImage,
+                profileImage: p.userId.profileImage,
                 gender: p.userId.gender || 'Other',
                 tags: p.userId.tags || [],
                 lat,
@@ -54,6 +68,7 @@ export const getNearbyUsers = async (req, res) => {
 
         res.json({ success: true, data: processed });
     } catch (error) {
+        console.error('❌ [getNearbyUsers] Error:', error.message);
         res.status(500).json({ success: false, message: error.message });
     }
 };
