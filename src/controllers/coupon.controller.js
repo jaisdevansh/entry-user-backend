@@ -167,7 +167,7 @@ export const buyCoupon = async (req, res, next) => {
 
 export const applyCoupon = async (req, res) => {
     try {
-        const { userCouponId, orderType, subtotal } = req.body;
+        const { userCouponId, orderType, subtotal, eventId } = req.body; // Added eventId
         const userId = req.user.id;
 
         const userCoupon = await UserCoupon.findOne({ _id: userCouponId, userId, isUsed: false, expiresAt: { $gt: new Date() } })
@@ -178,6 +178,25 @@ export const applyCoupon = async (req, res) => {
         }
 
         const coupon = userCoupon.couponId;
+        
+        // ✅ HOST-SPECIFIC COUPON VALIDATION
+        if (coupon.hostId && eventId) {
+            const Event = (await import('../models/Event.js')).default;
+            const event = await Event.findById(eventId).select('hostId');
+            
+            if (!event) {
+                return res.status(400).json({ success: false, message: 'Invalid event' });
+            }
+            
+            // Check if event's hostId matches coupon's hostId
+            if (event.hostId.toString() !== coupon.hostId.toString()) {
+                return res.status(400).json({ 
+                    success: false, 
+                    message: 'This coupon is only valid for specific venue events' 
+                });
+            }
+        }
+        
         if (coupon.applicableOn !== 'all' && coupon.applicableOn !== orderType) {
             return res.status(400).json({ success: false, message: `This coupon is only valid for ${coupon.applicableOn} orders` });
         }
