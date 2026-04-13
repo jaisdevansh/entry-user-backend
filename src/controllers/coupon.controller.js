@@ -241,17 +241,41 @@ export const applyCoupon = async (req, res) => {
 
 export const verifyPromoCode = async (req, res) => {
     try {
-        const { code, subtotal, orderType = 'all' } = req.body;
+        const { code, subtotal, orderType = 'all', hostId, eventId } = req.body;
         if (!code) return res.status(400).json({ success: false, message: 'Code required' });
 
         const searchCode = code.trim().toUpperCase();
         const coupon = await Coupon.findOne({ 
             code: searchCode, 
             isActive: true 
-        });
+        }).populate('hostId', 'name businessName');
 
         if (!coupon) {
             return res.status(404).json({ success: false, message: 'Invalid Promo Code' });
+        }
+
+        // ✅ HOST-SPECIFIC COUPON VALIDATION
+        if (coupon.hostId) {
+            let eventHostId = hostId;
+            
+            // If hostId not provided directly, fetch from event
+            if (!eventHostId && eventId) {
+                const Event = (await import('../models/Event.js')).default;
+                const event = await Event.findById(eventId).select('hostId');
+                
+                if (!event) {
+                    return res.status(400).json({ success: false, message: 'Invalid event' });
+                }
+                eventHostId = event.hostId.toString();
+            }
+            
+            // Check if event's hostId matches coupon's hostId
+            if (!eventHostId || eventHostId.toString() !== coupon.hostId._id.toString()) {
+                return res.status(400).json({ 
+                    success: false, 
+                    message: `This promo code is only valid for events by ${coupon.hostId?.name || coupon.hostId?.businessName || 'this host'}` 
+                });
+            }
         }
 
         // Check Expiry (if set)
