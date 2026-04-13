@@ -16,25 +16,45 @@ export const initSocket = (server) => {
     // Authentication middleware
     io.use((socket, next) => {
         const token = socket.handshake.auth.token;
-        if (!token) return next(new Error('Authentication required'));
+        if (!token) {
+            console.warn('[Socket Auth] No token provided');
+            return next(new Error('Authentication required'));
+        }
         
         try {
             const decoded = jwt.verify(token, process.env.JWT_SECRET);
+            console.log('[Socket Auth] Token decoded:', { 
+                hasId: !!decoded.id, 
+                has_id: !!decoded._id,
+                hasUserId: !!decoded.userId,
+                keys: Object.keys(decoded)
+            });
             socket.user = decoded;
             next();
         } catch (err) {
+            console.error('[Socket Auth] Token verification failed:', err.message);
             next(new Error('Invalid token'));
         }
     });
 
     io.on('connection', (socket) => {
-        const userId = socket.user?.id || socket.user?._id;
+        const userId = socket.user?.id || socket.user?._id || socket.user?.userId;
+        
+        console.log('[Socket] Connection attempt:', {
+            hasUser: !!socket.user,
+            userId,
+            userKeys: socket.user ? Object.keys(socket.user) : []
+        });
         
         if (!userId) {
             console.warn('[Socket] Disconnecting user with invalid/missing ID in JWT token');
+            console.warn('[Socket] User object:', socket.user);
             socket.disconnect(true);
             return;
         }
+
+        // Store userId on socket for easy access in event handlers
+        socket.userId = userId;
 
         if (!users.has(userId)) users.set(userId, new Set());
         users.get(userId).add(socket.id);
@@ -77,6 +97,7 @@ export const initSocket = (server) => {
 
         // Update presence / visibility
         socket.on('updatePresence', async (data) => {
+            const userId = socket.userId;
             const { eventId, lat, lng, visibility } = data;
             console.log('📡 [Socket] updatePresence received:', { userId, eventId, lat, lng, visibility });
             
@@ -114,12 +135,14 @@ export const initSocket = (server) => {
 
         // Leave Event Room
         socket.on('leaveEvent', async ({ eventId }) => {
+            const userId = socket.userId;
             socket.leave(`event_${eventId}`);
             await EventPresence.findOneAndUpdate({ userId, eventId }, { visibility: false });
         });
         
         // Typing
         socket.on('typing', ({ receiverId, chatId }) => {
+            const userId = socket.userId;
             const receiverSockets = users.get(receiverId);
             if(receiverSockets) {
                 for (const sid of receiverSockets) {
@@ -132,8 +155,9 @@ export const initSocket = (server) => {
         
         // Handle sending messages instantly and persist to DB in background
         socket.on('send_message', async (data, callback) => {
+            const senderId = socket.userId;
             const { receiverId, content, tempId } = data;
-            console.log('💬 [send_message] Received:', { senderId: userId, receiverId, content: content?.substring(0, 50), tempId });
+            console.log('💬 [send_message] Received:', { senderId, receiverId, content: content?.substring(0, 50), tempId });
             
             if (!receiverId || !content) {
                 console.warn('⚠️ [send_message] Missing fields:', { receiverId, hasContent: !!content });
@@ -148,7 +172,7 @@ export const initSocket = (server) => {
             let senderImage = '';
             try {
                 const { User } = await import('../models/user.model.js');
-                const sender = await User.findById(userId).select('name profileImage').lean();
+                const sender = await User.findById(senderId).select('name profileImage').lean();
                 if (sender) {
                     senderName = sender.name;
                     senderImage = sender.profileImage || '';
@@ -164,7 +188,7 @@ export const initSocket = (server) => {
             if (receiverSockets) {
                 const payload = {
                     tempId,
-                    senderId: userId,
+                    senderId,
                     receiverId,
                     content,
                     timestamp,
@@ -193,7 +217,7 @@ export const initSocket = (server) => {
                 // Dynamically import Message to avoid circular dependencies if any
                 const { Message } = await import('../models/Message.js');
                 const savedMsg = await Message.create({
-                    sender: userId,
+                    sender: senderId,
                     receiver: receiverId,
                     content,
                     isRead: false,
@@ -209,6 +233,7 @@ export const initSocket = (server) => {
 
         // Handle marking messages as read
         socket.on('mark_read', async ({ senderId }) => {
+            const userId = socket.userId;
             const senderSockets = users.get(senderId);
             if (senderSockets) {
                 for (const sid of senderSockets) {
@@ -228,6 +253,7 @@ export const initSocket = (server) => {
         });
 
         socket.on('disconnect', () => {
+            const userId = socket.userId;
             console.log('🔌 [Socket] User disconnecting:', { userId, socketId: socket.id });
             const userSockets = users.get(userId);
             if (userSockets) {
