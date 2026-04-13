@@ -170,6 +170,8 @@ export const applyCoupon = async (req, res) => {
         const { userCouponId, orderType, subtotal, eventId, hostId } = req.body;
         const userId = req.user.id;
 
+        console.log('[applyCoupon] Request:', { userCouponId, orderType, subtotal, eventId, hostId });
+
         const userCoupon = await UserCoupon.findOne({ _id: userCouponId, userId, isUsed: false, expiresAt: { $gt: new Date() } })
             .populate('couponId');
 
@@ -178,6 +180,7 @@ export const applyCoupon = async (req, res) => {
         }
 
         const coupon = userCoupon.couponId;
+        console.log('[applyCoupon] Coupon hostId:', coupon.hostId);
         
         // ✅ HOST-SPECIFIC COUPON VALIDATION
         if (coupon.hostId) {
@@ -194,13 +197,18 @@ export const applyCoupon = async (req, res) => {
                 eventHostId = event.hostId.toString();
             }
             
+            console.log('[applyCoupon] Comparing - Coupon hostId:', coupon.hostId.toString(), 'Event hostId:', eventHostId);
+            
             // Check if event's hostId matches coupon's hostId
             if (!eventHostId || eventHostId.toString() !== coupon.hostId.toString()) {
+                console.log('[applyCoupon] ❌ Host mismatch - Rejecting coupon');
                 return res.status(400).json({ 
                     success: false, 
                     message: `This coupon is only valid for events by ${coupon.hostId?.name || coupon.hostId?.businessName || 'this host'}` 
                 });
             }
+            
+            console.log('[applyCoupon] ✅ Host match - Coupon valid');
         }
         
         if (coupon.applicableOn !== 'all' && coupon.applicableOn !== orderType) {
