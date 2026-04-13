@@ -1,7 +1,7 @@
 import mongoose from 'mongoose';
 
 const couponSchema = new mongoose.Schema({
-    hostId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // Optional for system coupons
+    hostId: { type: mongoose.Schema.Types.ObjectId, ref: 'Host' }, // Optional for system coupons
     title: { type: String, required: true },
     code: { type: String, required: true, uppercase: true },
     discountType: { type: String, enum: ['percentage', 'flat'], default: 'percentage' },
