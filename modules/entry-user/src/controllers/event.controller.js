@@ -27,17 +27,47 @@ export const getAllEvents = async (req, res, next) => {
             const now = new Date();
             const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
+            console.log('🔍 [getAllEvents] Fetching events with filters:', {
+                status: 'LIVE',
+                date: { $gte: startOfToday },
+                startOfToday: startOfToday.toISOString()
+            });
+
+            // First check total events in DB
+            const totalEventsInDB = await Event.countDocuments({});
+            const liveEvents = await Event.countDocuments({ status: 'LIVE' });
+            const futureEvents = await Event.countDocuments({ date: { $gte: startOfToday } });
+            
+            console.log('📊 [getAllEvents] Database stats:', {
+                totalEvents: totalEventsInDB,
+                liveEvents: liveEvents,
+                futureEvents: futureEvents
+            });
+
             // ⚡ ULTRA OPTIMIZED: Minimal fields + lean() + limit
             const results = await Event.find({ 
                 status: 'LIVE', 
                 date: { $gte: startOfToday } 
             })
-            .select('title date startTime coverImage attendeeCount') // Only essential fields
-            .populate('hostId', 'name profileImage') // Minimal host data
+            .select('title date startTime coverImage attendeeCount locationVisibility locationData bookingOpenDate venueName hostModel') // Added hostModel for refPath
+            .populate({
+                path: 'hostId',
+                select: 'name profileImage businessName logo'
+            })
             .sort({ date: 1, isFeatured: -1 })
             .skip(skip)
             .limit(limit)
             .lean(); // 3x faster
+
+            console.log('✅ [getAllEvents] Found events:', results.length);
+            if (results.length > 0) {
+                console.log('📋 [getAllEvents] First event:', {
+                    title: results[0].title,
+                    date: results[0].date,
+                    status: results[0].status,
+                    hostId: results[0].hostId
+                });
+            }
 
             // Calculate display price and occupancy
             return results.map(e => {
@@ -60,7 +90,11 @@ export const getAllEvents = async (req, res, next) => {
                     coverImage: e.coverImage,
                     displayPrice: minPrice,
                     occupancy: `${occupancy}%`,
-                    hostId: e.hostId || { name: 'Collective Underground' }
+                    locationVisibility: e.locationVisibility,
+                    locationData: e.locationData,
+                    bookingOpenDate: e.bookingOpenDate,
+                    venueName: e.venueName,
+                    hostId: e.hostId // Don't override with fallback - let frontend handle it
                 };
             });
         });
@@ -511,6 +545,19 @@ export const getActiveEvent = async (req, res, next) => {
         if (booking && booking.hostId) {
             booking.hostId = booking.hostId.toString();
             console.log('🎯 [getActiveEvent] Converted hostId to string:', booking.hostId);
+            
+            // Get live crowd count for this event
+            const eventId = booking.eventId?._id || booking.eventId;
+            if (eventId) {
+                const checkedInCount = await Booking.countDocuments({
+                    eventId: eventId,
+                    status: { $in: ['checked_in', 'active'] }
+                });
+                
+                booking.liveCrowd = checkedInCount;
+                console.log('👥 [getActiveEvent] Live crowd count:', checkedInCount);
+            }
+            
             await cacheService.set(cacheKey, booking, 120);
         } else {
             console.log('⚠️ [getActiveEvent] No active booking found');

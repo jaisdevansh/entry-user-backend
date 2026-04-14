@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import { Booking } from '../models/booking.model.js';
 import { FoodOrder } from '../models/FoodOrder.js';
+import { DrinkRequest } from '../models/DrinkRequest.js';
 import { cacheService } from '../services/cache.service.js';
 
 export const getMyBookings = async (req, res, next) => {
@@ -98,24 +99,42 @@ export const getMyFoodOrders = async (req, res, next) => {
             return res.status(200).json({ success: true, data: typeof cached === 'string' ? JSON.parse(cached) : cached });
         }
 
-        // Build query
-        const query = { userId: req.user.id };
+        // Build query for both receiverId (gifts received) and userId (self orders)
+        const query = {
+            $or: [
+                { userId: req.user.id },
+                { receiverId: req.user.id }
+            ]
+        };
         if (status) query.status = status;
 
-        // ⚡ OPTIMIZED: Pagination + minimal fields + lean()
-        const [orders, total] = await Promise.all([
+        // ⚡ OPTIMIZED: Fetch both FoodOrders and DrinkRequests
+        const [foodOrders, drinkRequests] = await Promise.all([
             FoodOrder.find(query)
-                .select('eventId totalAmount createdAt status items type')
+                .select('eventId totalAmount createdAt status items type userId receiverId senderId')
                 .populate({ path: 'eventId', select: 'title' })
+                .populate({ path: 'senderId', select: 'name' })
+                .populate({ path: 'receiverId', select: 'name' })
                 .sort({ createdAt: -1 })
-                .skip(skip)
-                .limit(limit)
                 .lean(),
-            FoodOrder.countDocuments(query)
+            DrinkRequest.find(query)
+                .select('eventId totalAmount createdAt status items type userId receiverId senderId')
+                .populate({ path: 'eventId', select: 'title' })
+                .populate({ path: 'senderId', select: 'name' })
+                .populate({ path: 'receiverId', select: 'name' })
+                .sort({ createdAt: -1 })
+                .lean()
         ]);
 
+        // Combine and sort by date
+        const allOrders = [...foodOrders, ...drinkRequests]
+            .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+            .slice(skip, skip + limit);
+
+        const total = foodOrders.length + drinkRequests.length;
+
         const result = {
-            orders,
+            orders: allOrders,
             pagination: {
                 page,
                 limit,

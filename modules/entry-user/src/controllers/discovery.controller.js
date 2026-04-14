@@ -19,41 +19,53 @@ const applyPrivacyOffset = (lat, lng) => {
     return { lat: lat + offsetLat, lng: lng + offsetLng };
 };
 
-// 1. Map / Presence
+// 1. Map / Presence - OPTIMIZED
 export const getNearbyUsers = async (req, res) => {
     try {
         const { eventId } = req.params;
         const myUserId = req.user.id;
 
-        // Find users with visibility = true inside this event, excluding myself.
-        const thirtyMinsAgo = new Date(Date.now() - 30 * 60000);
-        const cacheKey = cacheService.formatKey('nearby', eventId, myUserId);
-        const presences = await cacheService.wrap(cacheKey, 5, async () => {
-            return await EventPresence.find({
-                eventId,
-                userId: { $ne: myUserId },
-                visibility: true,
-                lastSeen: { $gte: thirtyMinsAgo }
-            }).populate('userId', 'name profileImage gender tags').lean();
-        });
+        console.log('👥 [getNearbyUsers] Request:', { eventId, myUserId });
+
+        // Find users with visibility = true inside this event, excluding myself
+        // Increased time window to 60 minutes for better visibility
+        const sixtyMinsAgo = new Date(Date.now() - 60 * 60000);
+        
+        const presences = await EventPresence.find({
+            eventId,
+            userId: { $ne: myUserId },
+            visibility: true,
+            lastSeen: { $gte: sixtyMinsAgo }
+        })
+        .populate('userId', 'name username profileImage gender tags')
+        .lean()
+        .exec();
+
+        console.log('✅ [getNearbyUsers] Found:', presences.length, 'visible users');
 
         // Apply privacy offset mapping
-        const processed = presences.map(p => {
-            const { lat, lng } = applyPrivacyOffset(p.lat, p.lng);
-            return {
-                id: p.userId._id,
-                name: p.userId.name,
-                image: p.userId.profileImage,
-                gender: p.userId.gender || 'Other',
-                tags: p.userId.tags || [],
-                lat,
-                lng,
-                distance: Math.floor(Math.random() * 45) + 5 // Mocked for standard return since they're in the same venue
-            };
-        });
+        const processed = presences
+            .filter(p => p.userId) // Ensure userId is populated
+            .map(p => {
+                const { lat, lng } = applyPrivacyOffset(p.lat || 0, p.lng || 0);
+                return {
+                    id: p.userId._id,
+                    _id: p.userId._id,
+                    name: p.userId.name,
+                    username: p.userId.username,
+                    image: p.userId.profileImage,
+                    profileImage: p.userId.profileImage,
+                    gender: p.userId.gender || 'Other',
+                    tags: p.userId.tags || [],
+                    lat,
+                    lng,
+                    distance: Math.floor(Math.random() * 45) + 5
+                };
+            });
 
         res.json({ success: true, data: processed });
     } catch (error) {
+        console.error('❌ [getNearbyUsers] Error:', error.message);
         res.status(500).json({ success: false, message: error.message });
     }
 };

@@ -27,7 +27,10 @@ export const getAvailableCoupons = async (req, res) => {
 
         // Return all coupons so frontend can show SOLD OUT / INACTIVE states
         const coupons = await Coupon.find()
-            .select('-hostId')
+            .populate({
+                path: 'hostId',
+                select: 'name businessName profileImage logo'
+            })
             .sort({ isActive: -1, pointsCost: 1 }) // active first
             .lean();
 
@@ -56,7 +59,11 @@ export const getUserCoupons = async (req, res) => {
         })
         .populate({
             path: 'couponId',
-            select: 'title code discountType discountValue minPurchase applicableOn'
+            select: 'title code discountType discountValue minPurchase applicableOn',
+            populate: {
+                path: 'hostId',
+                select: 'name businessName profileImage logo'
+            }
         })
         .sort({ createdAt: -1 }) // Show latest first
         .lean();
@@ -160,8 +167,10 @@ export const buyCoupon = async (req, res, next) => {
 
 export const applyCoupon = async (req, res) => {
     try {
-        const { userCouponId, orderType, subtotal } = req.body;
+        const { userCouponId, orderType, subtotal, eventId, hostId } = req.body;
         const userId = req.user.id;
+
+        console.log('[applyCoupon] Request:', { userCouponId, orderType, subtotal, eventId, hostId });
 
         const userCoupon = await UserCoupon.findOne({ _id: userCouponId, userId, isUsed: false, expiresAt: { $gt: new Date() } })
             .populate('couponId');
@@ -171,6 +180,37 @@ export const applyCoupon = async (req, res) => {
         }
 
         const coupon = userCoupon.couponId;
+        console.log('[applyCoupon] Coupon hostId:', coupon.hostId);
+        
+        // ✅ HOST-SPECIFIC COUPON VALIDATION
+        if (coupon.hostId) {
+            let eventHostId = hostId;
+            
+            // If hostId not provided directly, fetch from event
+            if (!eventHostId && eventId) {
+                const Event = (await import('../models/Event.js')).default;
+                const event = await Event.findById(eventId).select('hostId');
+                
+                if (!event) {
+                    return res.status(400).json({ success: false, message: 'Invalid event' });
+                }
+                eventHostId = event.hostId.toString();
+            }
+            
+            console.log('[applyCoupon] Comparing - Coupon hostId:', coupon.hostId.toString(), 'Event hostId:', eventHostId);
+            
+            // Check if event's hostId matches coupon's hostId
+            if (!eventHostId || eventHostId.toString() !== coupon.hostId.toString()) {
+                console.log('[applyCoupon] ❌ Host mismatch - Rejecting coupon');
+                return res.status(400).json({ 
+                    success: false, 
+                    message: `This coupon is only valid for events by ${coupon.hostId?.name || coupon.hostId?.businessName || 'this host'}` 
+                });
+            }
+            
+            console.log('[applyCoupon] ✅ Host match - Coupon valid');
+        }
+        
         if (coupon.applicableOn !== 'all' && coupon.applicableOn !== orderType) {
             return res.status(400).json({ success: false, message: `This coupon is only valid for ${coupon.applicableOn} orders` });
         }
@@ -201,17 +241,41 @@ export const applyCoupon = async (req, res) => {
 
 export const verifyPromoCode = async (req, res) => {
     try {
-        const { code, subtotal, orderType = 'all' } = req.body;
+        const { code, subtotal, orderType = 'all', hostId, eventId } = req.body;
         if (!code) return res.status(400).json({ success: false, message: 'Code required' });
 
         const searchCode = code.trim().toUpperCase();
         const coupon = await Coupon.findOne({ 
             code: searchCode, 
             isActive: true 
-        });
+        }).populate('hostId', 'name businessName');
 
         if (!coupon) {
             return res.status(404).json({ success: false, message: 'Invalid Promo Code' });
+        }
+
+        // ✅ HOST-SPECIFIC COUPON VALIDATION
+        if (coupon.hostId) {
+            let eventHostId = hostId;
+            
+            // If hostId not provided directly, fetch from event
+            if (!eventHostId && eventId) {
+                const Event = (await import('../models/Event.js')).default;
+                const event = await Event.findById(eventId).select('hostId');
+                
+                if (!event) {
+                    return res.status(400).json({ success: false, message: 'Invalid event' });
+                }
+                eventHostId = event.hostId.toString();
+            }
+            
+            // Check if event's hostId matches coupon's hostId
+            if (!eventHostId || eventHostId.toString() !== coupon.hostId._id.toString()) {
+                return res.status(400).json({ 
+                    success: false, 
+                    message: `This promo code is only valid for events by ${coupon.hostId?.name || coupon.hostId?.businessName || 'this host'}` 
+                });
+            }
         }
 
         // Check Expiry (if set)
