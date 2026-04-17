@@ -283,6 +283,7 @@ export const submitIncidentReport = async (req, res, next) => {
 
         const report = await IssueReport.create({ 
             userId, 
+            userName: req.user?.name || req.user?.username || 'Guest', // Denormalized for cross-DB display
             eventId: finalEventId,
             hostId: finalHostId,
             type, 
