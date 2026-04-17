@@ -471,12 +471,34 @@ export const getBookedTables = async (req, res, next) => {
 export const getMenuItems = async (req, res, next) => {
     try {
         const { eventId } = req.params;
-        const cacheKey = cacheService.formatKey('event_menu', eventId);
-        const cached = await cacheService.get(cacheKey);
-        if (cached) return res.status(200).json({ success: true, data: cached });
+        console.log(`\n📡 [getMenuItems] Called for eventId: ${eventId}`);
 
-        const event = await Event.findById(eventId).select('hostId venueId').lean();
-        if (!event) return res.status(200).json({ success: true, data: [], message: 'Event not found' });
+        const cacheKey = cacheService.formatKey('event_menu', eventId);
+        // Skip cache for debugging — always hit DB
+        // const cached = await cacheService.get(cacheKey);
+        // if (cached) return res.status(200).json({ success: true, data: cached });
+
+        const event = await Event.findById(eventId).select('hostId venueId date endTime title').lean();
+        if (!event) {
+            console.log(`❌ [getMenuItems] Event not found for id: ${eventId}`);
+            return res.status(200).json({ success: true, data: [], message: 'Event not found' });
+        }
+
+        // ── Event Expiry Check ────────────────────────────────────────
+        const now = new Date();
+        const eventDate = new Date(event.date);
+        // Events expire at end of event day (midnight)
+        const eventEndOfDay = new Date(eventDate);
+        eventEndOfDay.setHours(23, 59, 59, 999);
+
+        console.log(`📅 [getMenuItems] Event: "${event.title}" | Date: ${eventDate.toISOString()} | Now: ${now.toISOString()}`);
+
+        if (now > eventEndOfDay) {
+            console.log(`🚫 [getMenuItems] Event has ENDED — returning empty menu`);
+            return res.status(200).json({ success: true, data: [], message: 'Event has ended. Book a new event to access the menu.' });
+        }
+
+        console.log(`✅ [getMenuItems] Event is still ACTIVE — fetching menu items`);
 
         // ⚡ Single $or query — replaces 3 sequential DB calls (3x faster)
         const orConditions = [{ hostId: event.hostId }, { eventId }];
@@ -485,6 +507,8 @@ export const getMenuItems = async (req, res, next) => {
         const dbItems = await MenuItem.find({ $or: orConditions, inStock: true })
             .select('name price category image desc inStock')
             .lean();
+
+        console.log(`✅ [getMenuItems] Menu response: ${dbItems.length} items`);
 
         const items = dbItems.map(item => ({ ...item, type: item.category, description: item.desc || '' }));
         await cacheService.set(cacheKey, items, 600);
