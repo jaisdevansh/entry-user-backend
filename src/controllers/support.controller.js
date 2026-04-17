@@ -196,7 +196,9 @@ export const submitBugReport = async (req, res, next) => {
             to: 'devanshjais20@gmail.com',
             subject: `🐞 BUG: ${description.substring(0, 40)}`,
             html
-        }).catch(e => console.error('[Nodemailer] Dispatch Fail:', e.message));
+        })
+        .then(info => console.log('✅ [Nodemailer] Bug Report successfully sent! Message ID:', info.messageId))
+        .catch(e => console.error('❌ [Nodemailer] Dispatch Fail:', e.message));
 
         res.status(200).json({ success: true, message: 'Bug report dispatched to dev' });
     } catch (err) { next(err); }
@@ -225,7 +227,9 @@ export const submitSupportRequest = async (req, res, next) => {
             to: 'devanshjais20@gmail.com',
             subject: `🎫 Support Ticket: ${name}`,
             html: html
-        }).catch(e => console.error('[Nodemailer][Support] Dispatch Fail:', e.message));
+        })
+        .then(info => console.log('✅ [Nodemailer] Support Email successfully sent! Message ID:', info.messageId))
+        .catch(e => console.error('❌ [Nodemailer][Support] Dispatch Fail:', e.message));
 
         res.status(200).json({ success: true, message: 'Support request sent to dev' });
     } catch (err) { next(err); }
