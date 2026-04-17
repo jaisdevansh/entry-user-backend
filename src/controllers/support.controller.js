@@ -276,9 +276,26 @@ export const submitIncidentReport = async (req, res, next) => {
                 .lean();
                 
             if (booking) {
-                finalTable = (booking.tableId && booking.tableId.trim() !== '') ? booking.tableId : (finalTable && finalTable !== 'N/A' ? finalTable : 'General Entry');
-                finalZone = (booking.ticketType && booking.ticketType.trim() !== '') ? booking.ticketType : (finalZone && finalZone !== 'General' ? finalZone : 'Main Floor');
+                const rawTable = booking.tableId;
+                // Extract readable seat from composite slug like "69dcf6d6_s42"
+                const parsedTable = (() => {
+                    if (!rawTable) return null;
+                    const t = rawTable.trim();
+                    if (t.length <= 10) return t.toUpperCase();
+                    const seatMatch = t.match(/_s(\d+)$/i);
+                    if (seatMatch) return `SEAT ${seatMatch[1]}`;
+                    const parts = t.split(/[-_]/);
+                    const short = parts.find(p => p.length < 8 && /[A-Za-z0-9]/.test(p));
+                    return short ? short.toUpperCase() : null;
+                })();
+                finalTable = parsedTable || (finalTable && finalTable !== 'N/A' ? finalTable : null);
+                finalZone = (booking.ticketType && booking.ticketType.trim() !== '') ? booking.ticketType : (finalZone && finalZone !== 'General' ? finalZone : null);
             }
+        }
+        // Final clean pass on whatever value we ended up with
+        if (finalTable && finalTable.length > 10) {
+            const seatMatch = finalTable.match(/_s(\d+)$/i);
+            if (seatMatch) finalTable = `SEAT ${seatMatch[1]}`;
         }
 
         const report = await IssueReport.create({ 
