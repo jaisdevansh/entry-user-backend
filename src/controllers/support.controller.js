@@ -2,6 +2,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { SupportMessage } from '../models/support.model.js';
 import Joi from 'joi';
 import { cacheService } from '../services/cache.service.js';
+import { cleanTableId, cleanZone } from '../utils/tableUtils.js';
 
 // Validation Schema
 export const askSupportSchema = Joi.object({
@@ -274,38 +275,25 @@ export const submitIncidentReport = async (req, res, next) => {
                 .select('tableId ticketType')
                 .sort({ createdAt: -1 })
                 .lean();
-                
+
             if (booking) {
-                const rawTable = booking.tableId;
-                // Extract readable seat from composite slug like "69dcf6d6_s42"
-                const parsedTable = (() => {
-                    if (!rawTable) return null;
-                    const t = rawTable.trim();
-                    if (t.length <= 10) return t.toUpperCase();
-                    const seatMatch = t.match(/_s(\d+)$/i);
-                    if (seatMatch) return `SEAT ${seatMatch[1]}`;
-                    const parts = t.split(/[-_]/);
-                    const short = parts.find(p => p.length < 8 && /[A-Za-z0-9]/.test(p));
-                    return short ? short.toUpperCase() : null;
-                })();
-                finalTable = parsedTable || (finalTable && finalTable !== 'N/A' ? finalTable : null);
-                finalZone = (booking.ticketType && booking.ticketType.trim() !== '') ? booking.ticketType : (finalZone && finalZone !== 'General' ? finalZone : null);
+                finalTable = cleanTableId(booking.tableId) || cleanTableId(finalTable);
+                finalZone = cleanZone(booking.ticketType) || cleanZone(finalZone);
             }
         }
-        // Final clean pass on whatever value we ended up with
-        if (finalTable && finalTable.length > 10) {
-            const seatMatch = finalTable.match(/_s(\d+)$/i);
-            if (seatMatch) finalTable = `SEAT ${seatMatch[1]}`;
-        }
+
+        // Final safety clean on whatever ended up as the value
+        if (finalTable) finalTable = cleanTableId(finalTable) || finalTable;
+        if (finalZone) finalZone = cleanZone(finalZone) || finalZone;
 
         const report = await IssueReport.create({ 
             userId, 
-            userName: req.user?.name || req.user?.username || 'Guest', // Denormalized for cross-DB display
+            userName: req.user?.name || req.user?.username || 'Guest',
             eventId: finalEventId,
             hostId: finalHostId,
             type, 
-            zone: finalZone || 'Main Floor', 
-            tableId: finalTable || 'General Entry', 
+            zone: finalZone || 'GENERAL', 
+            tableId: finalTable || 'FLOOR', 
             message, 
             status: 'open' 
         });
