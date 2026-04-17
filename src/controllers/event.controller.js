@@ -471,36 +471,56 @@ export const getBookedTables = async (req, res, next) => {
 export const getMenuItems = async (req, res, next) => {
     try {
         const { eventId } = req.params;
-        console.log(`\n📡 [getMenuItems] Called for eventId: ${eventId}`);
+        console.log(`\n📡 [getMenuItems] Called for eventId: ${eventId} by user: ${req.user.id}`);
 
         const cacheKey = cacheService.formatKey('event_menu', eventId);
-        // Skip cache for debugging — always hit DB
-        // const cached = await cacheService.get(cacheKey);
-        // if (cached) return res.status(200).json({ success: true, data: cached });
 
-        const event = await Event.findById(eventId).select('hostId venueId date endTime title').lean();
+        const event = await Event.findById(eventId).select('hostId venueId date title status').lean();
         if (!event) {
             console.log(`❌ [getMenuItems] Event not found for id: ${eventId}`);
             return res.status(200).json({ success: true, data: [], message: 'Event not found' });
         }
 
-        // ── Event Expiry Check ────────────────────────────────────────
-        const now = new Date();
-        const eventDate = new Date(event.date);
-        // Events expire at end of event day (midnight)
-        const eventEndOfDay = new Date(eventDate);
-        eventEndOfDay.setHours(23, 59, 59, 999);
+        console.log(`📅 [getMenuItems] Event: "${event.title}" | Status: ${event.status} | Date: ${event.date}`);
 
-        console.log(`📅 [getMenuItems] Event: "${event.title}" | Date: ${eventDate.toISOString()} | Now: ${now.toISOString()}`);
-
-        if (now > eventEndOfDay) {
-            console.log(`🚫 [getMenuItems] Event has ENDED — returning empty menu`);
-            return res.status(200).json({ success: true, data: [], message: 'Event has ended. Book a new event to access the menu.' });
+        // ── GATE 1: Block immediately if event is EXPIRED ─────────────────────
+        if (event.status === 'EXPIRED' || event.status === 'CANCELLED' || event.status === 'ENDED') {
+            console.log(`🚫 [getMenuItems] Event status is "${event.status}" — menu BLOCKED`);
+            return res.status(200).json({ success: true, data: [], message: 'This event has ended. Book a new event to access the menu.' });
         }
 
-        console.log(`✅ [getMenuItems] Event is still ACTIVE — fetching menu items`);
+        // ── GATE 2: Block if event date is in the past ────────────────────────
+        const now = new Date();
+        const eventDate = new Date(event.date);
+        const eventEndOfDay = new Date(eventDate);
+        eventEndOfDay.setHours(23, 59, 59, 999);
+        if (now > eventEndOfDay) {
+            console.log(`🚫 [getMenuItems] Event date ${event.date} is in the past — menu BLOCKED`);
+            return res.status(200).json({ success: true, data: [], message: 'This event has ended. Book a new event to access the menu.' });
+        }
 
-        // ⚡ Single $or query — replaces 3 sequential DB calls (3x faster)
+        // ── GATE 3: User must have an active booking for this event ───────────
+        const activeBooking = await Booking.findOne({
+            userId: req.user.id,
+            eventId,
+            status: { $in: ['active', 'checked_in', 'confirmed', 'approved'] }
+        }).select('_id').lean();
+
+        if (!activeBooking) {
+            console.log(`🚫 [getMenuItems] No active booking for user ${req.user.id} on event ${eventId} — menu BLOCKED`);
+            return res.status(200).json({ success: true, data: [], message: 'You need to book this event to access the menu.' });
+        }
+
+        console.log(`✅ [getMenuItems] All gates passed. Booking: ${activeBooking._id} — fetching menu`);
+
+        // Check cache only after all gates pass
+        const cached = await cacheService.get(cacheKey);
+        if (cached) {
+            console.log(`✅ [getMenuItems] Menu response (CACHED): ${cached.length} items`);
+            return res.status(200).json({ success: true, data: cached });
+        }
+
+        // ⚡ Single $or query
         const orConditions = [{ hostId: event.hostId }, { eventId }];
         if (event.venueId) orConditions.push({ venueId: event.venueId });
 
