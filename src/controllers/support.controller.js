@@ -345,3 +345,50 @@ export const submitReview = async (req, res, next) => {
         res.status(201).json({ success: true, message: 'Review submitted', data: review });
     } catch (err) { next(err); }
 };
+
+export const getMyReview = async (req, res, next) => {
+    try {
+        const userId = req.user.id;
+        const { eventId } = req.query;
+
+        if (!eventId) {
+            return res.status(400).json({ success: false, message: 'eventId is required' });
+        }
+
+        const { Review } = await import('../models/Review.js');
+        const review = await Review.findOne({ userId, eventId }).lean();
+
+        res.status(200).json({ success: true, data: review || null });
+    } catch (err) { next(err); }
+};
+
+export const updateReview = async (req, res, next) => {
+    try {
+        const { reviewId, vibe, service, music, feedback, isAnonymous } = req.body;
+        const userId = req.user.id;
+
+        if (!reviewId) {
+            return res.status(400).json({ success: false, message: 'reviewId is required' });
+        }
+
+        const { Review } = await import('../models/Review.js');
+        const existing = await Review.findOne({ _id: reviewId, userId });
+
+        if (!existing) {
+            return res.status(404).json({ success: false, message: 'Review not found or unauthorized' });
+        }
+
+        const vScore = Number(vibe) || existing.scores.vibe;
+        const sScore = Number(service) || existing.scores.service;
+        const mScore = Number(music) || existing.scores.music;
+        const avgScore = (vScore + sScore + mScore) / 3;
+
+        existing.scores = { vibe: vScore, service: sScore, music: mScore };
+        existing.avgScore = avgScore;
+        existing.feedback = feedback ?? existing.feedback;
+        existing.isAnonymous = isAnonymous !== undefined ? Boolean(isAnonymous) : existing.isAnonymous;
+        await existing.save();
+
+        res.status(200).json({ success: true, message: 'Review updated', data: existing });
+    } catch (err) { next(err); }
+};

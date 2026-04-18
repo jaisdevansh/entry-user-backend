@@ -23,7 +23,7 @@ import {
 } from '../controllers/support.controller.js';
 
 import {
-    submitIncidentReport, submitReview
+    submitIncidentReport, submitReview, getMyReview, updateReview
 } from '../controllers/support.controller.js';
 
 import { reportEvent } from '../controllers/event.controller.js';
@@ -75,7 +75,9 @@ router.get('/host/:hostId/menu', getHostMenu);
 router.get('/host/:hostId/gifts', getHostGifts);
 
 // --- REVIEWS ---
+router.get('/reviews/my', getMyReview);
 router.post('/reviews', submitReview);
+router.put('/reviews', updateReview);
 
 // --- SUPPORT & SAFETY ---
 router.post('/rate', submitAppRating);
