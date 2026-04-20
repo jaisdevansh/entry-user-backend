@@ -49,7 +49,7 @@ export const getAllEvents = async (req, res, next) => {
                 status: 'LIVE', 
                 date: { $gte: startOfToday } 
             })
-            .select('title date startTime coverImage attendeeCount locationVisibility locationData bookingOpenDate venueName hostModel') // Added hostModel for refPath
+            .select('title date startTime coverImage attendeeCount locationVisibility locationData bookingOpenDate venueName hostModel tickets floors price') // Added tickets, floors and price
             .populate({
                 path: 'hostId',
                 select: 'name profileImage businessName logo'
@@ -72,9 +72,25 @@ export const getAllEvents = async (req, res, next) => {
             // Calculate display price and occupancy
             return results.map(e => {
                 const tickets = e.tickets || [];
-                const minPrice = tickets.length > 0 
-                    ? Math.min(...tickets.map(t => t.price)) 
-                    : 2500;
+                const floors = e.floors || [];
+                
+                let prices = [];
+                if (tickets.length > 0) {
+                    prices.push(...tickets.map(t => t.price));
+                }
+                if (floors.length > 0) {
+                    prices.push(...floors.map(f => f.price));
+                }
+                
+                // Remove undefined/null
+                prices = prices.filter(p => p !== undefined && p !== null && !isNaN(p));
+                
+                let minPrice = undefined;
+                if (prices.length > 0) {
+                    minPrice = Math.min(...prices);
+                } else if (e.price !== undefined) {
+                    minPrice = e.price;
+                }
                 
                 const totalCapacity = tickets.reduce((sum, t) => sum + (t.capacity || 0), 0) || 100;
                 const totalSold = tickets.reduce((sum, t) => sum + (t.sold || 0), 0);
@@ -88,7 +104,10 @@ export const getAllEvents = async (req, res, next) => {
                     date: e.date,
                     startTime: e.startTime,
                     coverImage: e.coverImage,
-                    displayPrice: minPrice,
+                    displayPrice: minPrice !== undefined ? minPrice : null,
+                    tickets: tickets,
+                    floors: floors, // Include floors array for frontend
+                    price: e.price, // Include fallback price
                     occupancy: `${occupancy}%`,
                     locationVisibility: e.locationVisibility,
                     locationData: e.locationData,
@@ -339,14 +358,30 @@ export const getFloorPlan = async (req, res, next) => {
         const { id } = req.params;
         const { Floor } = await import('../models/Floor.js');
         const { Event } = await import('../models/Event.js');
+        const { Booking } = await import('../models/booking.model.js');
 
-        // 1. Fetch data from both sources
-        const [dedicatedFloors, eventDoc] = await Promise.all([
+        // 1. Fetch data from all sources
+        const [dedicatedFloors, eventDoc, bookedSeats] = await Promise.all([
             Floor.find({ eventId: id }).lean(),
-            Event.findById(id).select('floors tickets').lean()
+            Event.findById(id).select('floors tickets').lean(),
+            Booking.find({ 
+                eventId: id, 
+                status: { $ne: 'cancelled' },
+                seatIds: { $exists: true, $ne: [] }
+            }).select('seatIds').lean()
         ]);
 
-        // 2. Resolve the primary source of 'zones'
+        // 2. Collect all booked seat IDs
+        const bookedSeatIds = new Set();
+        bookedSeats.forEach(booking => {
+            if (booking.seatIds && Array.isArray(booking.seatIds)) {
+                booking.seatIds.forEach(seatId => bookedSeatIds.add(seatId));
+            }
+        });
+
+        console.log('[FloorPlan] Total booked seats:', bookedSeatIds.size);
+
+        // 3. Resolve the primary source of 'zones'
         let rawZones = [];
         if (dedicatedFloors && dedicatedFloors.length > 0) {
             rawZones = dedicatedFloors;
@@ -359,23 +394,31 @@ export const getFloorPlan = async (req, res, next) => {
             }));
         }
 
-        // 3. Transform and add virtual seats for UX orchestration
+        // 4. Transform and add virtual seats with real booking status
         const zones = rawZones.map(f => {
             const seats = [];
-            // Generate seats based on capacity (default to 24 if missing)
             const count = Math.min(f.capacity || 24, 100); 
+            
             for (let i = 1; i <= count; i++) {
+                const seatId = `${f._id || f.type}_s${i}`;
+                const isBooked = bookedSeatIds.has(seatId);
+                
                 seats.push({
-                    id: `${f._id || f.type}_s${i}`,
+                    id: seatId,
                     number: `${i}`,
-                    status: 'available',  // All seats available by default
+                    status: isBooked ? 'booked' : 'available',
                     price: f.price
                 });
             }
+            
+            const bookedInZone = seats.filter(s => s.status === 'booked').length;
+            
             return {
                 ...f,
                 name: f.name || f.type,
-                seats
+                seats,
+                available: count - bookedInZone,
+                total: count
             };
         });
 

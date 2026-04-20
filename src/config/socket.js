@@ -173,6 +173,7 @@ export const initSocket = (server) => {
             try {
                 const { User } = await import('../models/user.model.js');
                 const sender = await User.findById(senderId).select('name profileImage').lean();
+                console.log('👤 [send_message] Sender info from DB:', { senderId, sender });
                 if (sender) {
                     senderName = sender.name;
                     senderImage = sender.profileImage || '';
@@ -196,7 +197,12 @@ export const initSocket = (server) => {
                     senderName,
                     senderImage
                 };
-                console.log('📤 [send_message] Emitting to receiver:', { receiverId, socketIds: Array.from(receiverSockets), payload });
+                console.log('📤 [send_message] Emitting payload:', { 
+                    receiverId, 
+                    socketIds: Array.from(receiverSockets), 
+                    senderName,
+                    hasSenderImage: !!senderImage
+                });
                 
                 for (const sid of receiverSockets) {
                     io.to(sid).emit('receive_message', payload);
