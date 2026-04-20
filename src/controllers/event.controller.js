@@ -368,7 +368,7 @@ export const getFloorPlan = async (req, res, next) => {
                 seats.push({
                     id: `${f._id || f.type}_s${i}`,
                     number: `${i}`,
-                    status: (i % 8 === 0) ? 'booked' : 'available',
+                    status: 'available',  // All seats available by default
                     price: f.price
                 });
             }
