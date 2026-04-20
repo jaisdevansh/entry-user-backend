@@ -15,7 +15,7 @@ export const getChatHistory = async (req, res) => {
         const skip = (page - 1) * limit;
 
         // Fetch peer info just to verify and send basic details if needed
-        const peer = await User.findById(peerId).select('name role status isVerified');
+        const peer = await User.findById(peerId).select('name profileImage role status isVerified');
         if (!peer) {
             return res.status(404).json({ success: false, message: 'User not found' });
         }
