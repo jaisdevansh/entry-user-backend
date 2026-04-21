@@ -13,29 +13,29 @@ import xss from 'xss-clean';
 
 dotenv.config();
 
-import { logger } from './src/logs/logger.js';
-import { startCronJobs } from './src/services/cron.service.js';
+import { logger } from './modules/entry-user/src/logs/logger.js';
+import { startCronJobs } from './modules/entry-user/src/services/cron.service.js';
 
 const NODE_ENV  = process.env.NODE_ENV || 'development';
 const MONGO_URI = process.env.MONGO_URI;
 const PORT      = process.env.PORT || 3001;
 
 // ── User Routes ────────────────────────────────────────────────────────────────
-import authRoutes           from './src/routes/auth.routes.js';
-import userRoutes           from './src/routes/user.routes.js';
-import aiRoutes             from './src/routes/ai.routes.js';
-import notificationRoutes   from './src/routes/notification.routes.js';
-import paymentRoutes        from './src/routes/payment.routes.js';
-import discoveryRoutes      from './src/routes/discovery.routes.js';
-import drinkRequestRoutes   from './src/routes/drinkRequest.routes.js';
-import radarRoutes          from './src/routes/radar.routes.js';
-import floorRoutes          from './src/routes/floor.routes.js';
-import chatRoutes           from './src/routes/chat.routes.js';
-import walletRoutes         from './src/routes/wallet.routes.js';
-import couponRoutes         from './src/routes/coupon.routes.js';
-import referralRewardRoutes from './src/routes/referralReward.routes.js';
-import supportRoutes        from './src/routes/support.routes.js';
-import { errorHandler, notFoundHandler } from './src/middleware/error.js';
+import authRoutes           from './modules/entry-user/src/routes/auth.routes.js';
+import userRoutes           from './modules/entry-user/src/routes/user.routes.js';
+import aiRoutes             from './modules/entry-user/src/routes/ai.routes.js';
+import notificationRoutes   from './modules/entry-user/src/routes/notification.routes.js';
+import paymentRoutes        from './modules/entry-user/src/routes/payment.routes.js';
+import discoveryRoutes      from './modules/entry-user/src/routes/discovery.routes.js';
+import drinkRequestRoutes   from './modules/entry-user/src/routes/drinkRequest.routes.js';
+import radarRoutes          from './modules/entry-user/src/routes/radar.routes.js';
+import floorRoutes          from './modules/entry-user/src/routes/floor.routes.js';
+import chatRoutes           from './modules/entry-user/src/routes/chat.routes.js';
+import walletRoutes         from './modules/entry-user/src/routes/wallet.routes.js';
+import couponRoutes         from './modules/entry-user/src/routes/coupon.routes.js';
+import referralRewardRoutes from './modules/entry-user/src/routes/referralReward.routes.js';
+import supportRoutes        from './modules/entry-user/src/routes/support.routes.js';
+import { errorHandler, notFoundHandler } from './modules/entry-user/src/middleware/error.js';
 
 // ── App Setup ─────────────────────────────────────────────────────────────────
 const app = express();
@@ -195,9 +195,9 @@ const startServer = async () => {
         await mongoose.connect(MONGO_URI, { serverSelectionTimeoutMS: 5000, socketTimeoutMS: 45000, maxPoolSize: 50 });
         logger.info('✔ MongoDB connected (user-api)');
 
-        const { initSocket } = await import('./src/socket.js');
-        const { initLocationRevealService } = await import('./src/services/locationReveal.service.js');
-        const { initIssueEscalationService } = await import('./src/services/issueEscalation.service.js');
+        const { initSocket } = await import('./modules/entry-user/src/socket.js');
+        const { initLocationRevealService } = await import('./modules/entry-user/src/services/locationReveal.service.js');
+        const { initIssueEscalationService } = await import('./modules/entry-user/src/services/issueEscalation.service.js');
 
         const server = app.listen(PORT, '0.0.0.0', () => {
             console.log("user backend is awaked");
@@ -212,9 +212,9 @@ const startServer = async () => {
         // Cache warm-up
         setTimeout(async () => {
             try {
-                const { Event }        = await import('./src/models/Event.js');
-                const { User }         = await import('./src/models/user.model.js');
-                const { cacheService } = await import('./src/services/cache.service.js');
+                const { Event }        = await import('./modules/entry-user/src/models/Event.js');
+                const { User }         = await import('./modules/entry-user/src/models/user.model.js');
+                const { cacheService } = await import('./modules/entry-user/src/services/cache.service.js');
                 try { await User.collection.dropIndex('email_1'); } catch(_) {}
                 try { await User.collection.dropIndex('phone_1'); } catch(_) {}
                 await User.syncIndexes();

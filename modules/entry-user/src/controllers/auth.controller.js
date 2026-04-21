@@ -9,6 +9,7 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { registerSchema, loginSchema, refreshTokenSchema, forgotPasswordSchema, resetPasswordSchema, sendOtpSchema, verifyOtpSchema } from '../validators/auth.validator.js';
 import sendEmail from '../utils/sendEmail.js';
+import { send2FactorOtp, verify2FactorOtp } from '../services/2factor.service.js';
 import { sendSmsOtp, verifySmsOtp } from '../services/twilio.service.js';
 import { cacheService } from '../services/cache.service.js';
 
@@ -145,10 +146,11 @@ export const sendOtp = async (req, res, next) => {
             const rawPhone = identifier.replace(/\s/g, '');
             const e164Phone = rawPhone.startsWith('+') ? rawPhone : `+${rawPhone}`;
 
-            // ⚡ FAST-FIX: Temporarily hardcoded to true to bypass Twilio and save SMS quota
-            const useTwilioBypass = true; // process.env.TWILIO_BYPASS === 'true';
+            // ⚡ Check which SMS service to use
+            const useBypassMode = process.env.OTP_BYPASS === 'true';
+            const use2Factor = process.env.TWO_FACTOR_API_KEY && !useBypassMode;
             
-            if (useTwilioBypass) {
+            if (useBypassMode) {
                 // 🔧 BYPASS MODE: Use local DB OTP (for testing/development)
                 const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
                 await Otp.findOneAndUpdate(
@@ -157,26 +159,55 @@ export const sendOtp = async (req, res, next) => {
                     { upsert: true, new: true, setDefaultsOnInsert: true }
                 );
                 console.log(`[AUTH BYPASS] Phone OTP for ${e164Phone}: ${otpCode}`);
+                
+                // Only show hint in development mode
+                const isDevelopment = process.env.NODE_ENV === 'development';
                 return res.status(200).json({
                     success: true,
-                    message: 'OTP sent (bypass mode)',
-                    data: { type: 'phone', hint: otpCode }
+                    message: 'OTP sent successfully',
+                    data: { 
+                        type: 'phone', 
+                        hint: isDevelopment ? otpCode : undefined 
+                    }
                 });
             }
 
-            // 🔒 PRODUCTION: Use Twilio Verify with retry logic
+            // 🔒 PRODUCTION: Use 2Factor or Twilio
             try {
-                await sendSmsOtp(e164Phone);
-                console.log(`[AUTH] Twilio OTP sent to ${e164Phone}`);
-                res.status(200).json({ 
-                    success: true, 
-                    message: 'OTP sent to your phone via SMS', 
-                    data: { type: 'phone' } 
-                });
-            } catch (twilioErr) {
-                console.error('[AUTH] Twilio sendSmsOtp failed:', twilioErr.message);
+                if (use2Factor) {
+                    // Use 2Factor SMS Service
+                    const result = await send2FactorOtp(e164Phone);
+                    
+                    // Store session ID for verification
+                    await Otp.findOneAndUpdate(
+                        { identifier: e164Phone },
+                        { 
+                            otp: result.sessionId, // Store session ID instead of OTP
+                            createdAt: new Date() 
+                        },
+                        { upsert: true, new: true }
+                    );
+                    
+                    console.log(`[AUTH] 2Factor OTP sent to ${e164Phone}`);
+                    return res.status(200).json({ 
+                        success: true, 
+                        message: 'OTP sent to your phone via SMS', 
+                        data: { type: 'phone' } 
+                    });
+                } else {
+                    // Use Twilio Verify
+                    await sendSmsOtp(e164Phone);
+                    console.log(`[AUTH] Twilio OTP sent to ${e164Phone}`);
+                    return res.status(200).json({ 
+                        success: true, 
+                        message: 'OTP sent to your phone via SMS', 
+                        data: { type: 'phone' } 
+                    });
+                }
+            } catch (smsErr) {
+                console.error('[AUTH] SMS service failed:', smsErr.message);
                 
-                // Fallback to DB OTP if Twilio fails (graceful degradation)
+                // Fallback to DB OTP if SMS service fails
                 const fallbackOtp = Math.floor(100000 + Math.random() * 900000).toString();
                 await Otp.findOneAndUpdate(
                     { identifier: e164Phone },
