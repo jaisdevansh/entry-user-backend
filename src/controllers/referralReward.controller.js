@@ -95,7 +95,9 @@ export const handleInvite = async (req, res) => {
         const user = await User.findOne({ referralCode: normalizedCode }).select('name profileImage').lean();
         
         // Deep link URI — scheme must match app.json "scheme": "entry-club"
-        const appLink = `entry-club://(auth)/signup?code=${normalizedCode}`;
+        // NOTE: In Expo Router, route groups like (auth) are transparent — they do NOT
+        // appear in the URL. So src/app/(auth)/signup.tsx is reachable at /signup.
+        const appLink = `entry-club://signup?code=${normalizedCode}`;
 
         // Simple but premium HTML response
         res.send(`
@@ -118,7 +120,6 @@ export const handleInvite = async (req, res) => {
                     .btn:hover { background: #6c3dec; transform: translateY(-2px); }
                     .btn:active { transform: translateY(0); }
                     .footer { margin-top: 32px; font-size: 12px; color: #555; font-weight: 500; }
-                    .loading-bar { position: absolute; bottom: 0; left: 0; height: 2px; background: #7c4dff; width: 0; }
                 </style>
             </head>
             <body>
@@ -132,28 +133,23 @@ export const handleInvite = async (req, res) => {
                     </div>
                     <h1>Join the Club</h1>
                     <p><strong>${user?.name || 'A private member'}</strong> has invited you to join the most exclusive nightlife discovery community.</p>
-                    <button id="mainBtn" class="btn">ENTER THE CLUB</button>
+                    <a id="mainBtn" class="btn" href="${appLink}">ENTER THE CLUB</a>
                     <div class="footer">Opening this link will launch the Entry Club App</div>
                 </div>
                 <script>
-                    const link = "${appLink}";
-                    const btn = document.getElementById('mainBtn');
-                    
-                    function launchApp() {
-                        window.location.href = link;
-                        
-                        // Fallback logic for Desktop or if app is not installed
-                        setTimeout(() => {
-                            if (confirm("Could not open the app automatically. Would you like to go to the website instead?")) {
-                                window.location.href = "/";
-                            }
+                    // On Android Chrome, window.location.href for custom schemes is blocked
+                    // unless triggered directly by a user gesture (tap).
+                    // Using an <a href="..."> tag is the most reliable cross-platform approach.
+                    // The script below is a fallback for devices that need it.
+                    document.getElementById('mainBtn').addEventListener('click', function(e) {
+                        e.preventDefault();
+                        window.location.href = "${appLink}";
+                        // If app not installed, show install hint after 2.5s
+                        setTimeout(function() {
+                            document.querySelector('.footer').textContent = 
+                                'App not installed? Download Entry Club from the Play Store.';
                         }, 2500);
-                    }
-
-                    btn.onclick = launchApp;
-
-                    // Initial attempt
-                    setTimeout(launchApp, 1500);
+                    });
                 </script>
             </body>
             </html>
