@@ -94,8 +94,8 @@ export const handleInvite = async (req, res) => {
         
         const user = await User.findOne({ referralCode: normalizedCode }).select('name profileImage').lean();
         
-        // Deep link URI
-        const appLink = `entryclub://signup?code=${normalizedCode}`;
+        // Deep link URI — scheme must match app.json "scheme": "entry-club"
+        const appLink = `entry-club://(auth)/signup?code=${normalizedCode}`;
 
         // Simple but premium HTML response
         res.send(`
