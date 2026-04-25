@@ -145,8 +145,8 @@ export const sendOtp = async (req, res, next) => {
             const rawPhone = identifier.replace(/\s/g, '');
             const e164Phone = rawPhone.startsWith('+') ? rawPhone : `+${rawPhone}`;
 
-            // ⚡ FAST-FIX: Temporarily hardcoded to true to bypass Twilio and save SMS quota
-            const useTwilioBypass = true; // process.env.TWILIO_BYPASS === 'true';
+            // Use TWILIO_BYPASS=true in .env to skip real SMS (dev/testing only)
+            const useTwilioBypass = process.env.TWILIO_BYPASS === 'true';
             
             if (useTwilioBypass) {
                 // 🔧 BYPASS MODE: Use local DB OTP (for testing/development)
@@ -156,7 +156,7 @@ export const sendOtp = async (req, res, next) => {
                     { otp: otpCode, createdAt: new Date() },
                     { upsert: true, new: true, setDefaultsOnInsert: true }
                 );
-                false && console.log(`[AUTH BYPASS] Phone OTP for ${e164Phone}: ${otpCode}`);
+                console.log(`[AUTH BYPASS] Phone OTP for ${e164Phone}: ${otpCode}`);
                 return res.status(200).json({
                     success: true,
                     message: 'OTP sent (bypass mode)',
@@ -212,8 +212,8 @@ export const verifyOtp = async (req, res, next) => {
             const rawPhone = identifier.replace(/\s/g, '');
             const e164Phone = rawPhone.startsWith('+') ? rawPhone : `+${rawPhone}`;
 
-            // ⚡ FAST-FIX: Temporarily hardcoded to true to bypass Twilio and save SMS quota
-            const useTwilioBypass = true; // process.env.TWILIO_BYPASS === 'true';
+            // Use TWILIO_BYPASS=true in .env to skip real SMS (dev/testing only)
+            const useTwilioBypass = process.env.TWILIO_BYPASS === 'true';
             
             if (useTwilioBypass) {
                 // 🔧 BYPASS MODE: Check against local DB OTP
