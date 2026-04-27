@@ -116,17 +116,30 @@ router.get('/google', (req, res, next) => {
 // Step 2: Google calls back → generate JWT → deep-link back to app
 router.get('/callback/google',
     (req, res, next) => {
+        let redirectUri = 'entry-club://auth';
+        if (req.query.state) {
+            try {
+                const decoded = JSON.parse(Buffer.from(req.query.state, 'base64').toString('utf8'));
+                if (decoded.redirectUri) redirectUri = decoded.redirectUri;
+            } catch(e) {}
+        }
+
         if (req.query.error) {
-            let redirectUri = 'entry-club://auth';
-            if (req.query.state) {
-                try {
-                    const decoded = JSON.parse(Buffer.from(req.query.state, 'base64').toString('utf8'));
-                    if (decoded.redirectUri) redirectUri = decoded.redirectUri;
-                } catch(e) {}
-            }
             return res.redirect(`${redirectUri}?error=google_failed`);
         }
-        passport.authenticate('google', { session: false })(req, res, next);
+
+        passport.authenticate('google', { session: false }, (err, user, info) => {
+            if (err) {
+                console.error('[Google Callback] Auth Error:', err.message);
+                const errMsg = err.message || 'server_error';
+                return res.redirect(`${redirectUri}?error=${encodeURIComponent(errMsg)}`);
+            }
+            if (!user) {
+                return res.redirect(`${redirectUri}?error=no_user`);
+            }
+            req.user = user;
+            next();
+        })(req, res, next);
     },
     async (req, res) => {
         try {
