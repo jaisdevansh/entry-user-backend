@@ -35,9 +35,10 @@ const getUniqueUsername = async (name) => {
 passport.use(new GoogleStrategy({
     clientID:     process.env.GOOGLE_CLIENT_ID,
     clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    callbackURL:  process.env.NODE_ENV === 'production' 
-        ? 'https://test-53pw.onrender.com/api/auth/callback/google'
-        : 'http://localhost:3000/api/auth/callback/google',
+    callbackURL:  process.env.GOOGLE_CALLBACK_URL || 
+        (process.env.NODE_ENV === 'production' 
+            ? 'https://stayin.in/api2/auth/callback/google'
+            : 'http://localhost:3001/api/auth/callback/google'),
     scope: ['profile', 'email'],
 }, async (accessToken, refreshToken, profile, done) => {
     try {
