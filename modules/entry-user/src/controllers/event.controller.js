@@ -49,7 +49,7 @@ export const getAllEvents = async (req, res, next) => {
                 status: 'LIVE', 
                 date: { $gte: startOfToday } 
             })
-            .select('title date startTime coverImage attendeeCount locationVisibility locationData bookingOpenDate venueName hostModel tickets floors price') // Added tickets, floors and price
+            .select('title date startTime coverImage attendeeCount locationVisibility locationData bookingOpenDate venueName hostModel tickets floors price revealTime') // Added tickets, floors, price and revealTime
             .populate({
                 path: 'hostId',
                 select: 'name profileImage businessName logo'
@@ -124,6 +124,7 @@ export const getAllEvents = async (req, res, next) => {
                     locationVisibility: e.locationVisibility,
                     locationData: e.locationData,
                     bookingOpenDate: e.bookingOpenDate,
+                    revealTime: e.revealTime,
                     venueName: e.venueName,
                     hostId: e.hostId // Don't override with fallback - let frontend handle it
                 };
@@ -275,7 +276,7 @@ export const getEventFull = async (req, res, next) => {
         const dbStart = Date.now();
         const [event, dedicatedFloors] = await Promise.all([
             Event.findById(id)
-                .select('title date startTime endTime coverImage images status hostId locationVisibility isLocationRevealed locationData floorCount attendeeCount description houseRules freeRefreshmentsCount tickets floors bookingOpenDate')
+                .select('title date startTime endTime coverImage images status hostId locationVisibility isLocationRevealed locationData floorCount attendeeCount description houseRules freeRefreshmentsCount tickets floors bookingOpenDate revealTime')
                 .populate({
                     path: 'hostId',
                     select: 'firstName lastName name profileImage',

@@ -14,8 +14,8 @@ import { UserCoupon } from '../models/UserCoupon.js';
 import { cacheService } from '../services/cache.service.js';
 
 const razorpay = new Razorpay({
-    key_id:     process.env.RAZORPAY_KEY_ID     || 'rzp_test_SPXu9raqQAlU2T',
-    key_secret: process.env.RAZORPAY_KEY_SECRET || 'PkFBT2KvmM0g7lHbilOP8NF1',
+    key_id:     process.env.RAZORPAY_KEY_ID     || 'rzp_test_SZ2UV8QmCtqOFR',
+    key_secret: process.env.RAZORPAY_KEY_SECRET || '86jF6JDp7UB0TMGOerC7kdxB',
 });
 
 export const createOrder = async (req, res, next) => {
@@ -60,7 +60,7 @@ export const verifyPayment = async (req, res, next) => {
 
         const sign = razorpay_order_id + "|" + razorpay_payment_id;
         const expectedSign = crypto
-            .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET || 'PkFBT2KvmM0g7lHbilOP8NF1')
+            .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET || '86jF6JDp7UB0TMGOerC7kdxB')
             .update(sign.toString())
             .digest("hex");
 
@@ -379,7 +379,7 @@ export const verifyFoodPayment = async (req, res, next) => {
 
         const sign = razorpay_order_id + "|" + razorpay_payment_id;
         const expectedSign = crypto
-            .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET || 'PkFBT2KvmM0g7lHbilOP8NF1')
+            .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET || '86jF6JDp7UB0TMGOerC7kdxB')
             .update(sign.toString())
             .digest("hex");
 

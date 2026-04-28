@@ -106,6 +106,12 @@ passport.use(new GoogleStrategy({
 
 // Step 1: Redirect user to Google login page
 router.get('/google', (req, res, next) => {
+    console.log('--- [BACKEND DEBUG] GET /api/auth/google hit ---');
+    console.log('[DEBUG /google] Original URL:', req.originalUrl);
+    console.log('[DEBUG /google] Host:', req.headers.host);
+    console.log('[DEBUG /google] Query params:', req.query);
+    console.log('[DEBUG /google] Configured Callback URL:', process.env.GOOGLE_CALLBACK_URL || 'https://stayin.in/api2/auth/callback/google');
+
     const redirectUri = req.query.redirectUri || 'entry-club://auth';
     const state = Buffer.from(JSON.stringify({ redirectUri })).toString('base64');
     passport.authenticate('google', { scope: ['profile', 'email'], session: false, state })(req, res, next);
@@ -114,6 +120,11 @@ router.get('/google', (req, res, next) => {
 // Step 2: Google calls back → generate JWT → deep-link back to app
 router.get('/callback/google',
     (req, res, next) => {
+        console.log('--- [BACKEND DEBUG] Callback hit from Google ---');
+        console.log('[DEBUG /callback/google] Original URL:', req.originalUrl);
+        console.log('[DEBUG /callback/google] Host:', req.headers.host);
+        console.log('[DEBUG /callback/google] Query params:', req.query);
+
         let redirectUri = 'entry-club://auth';
         if (req.query.state) {
             try {
@@ -123,16 +134,24 @@ router.get('/callback/google',
         }
 
         if (req.query.error) {
+            console.error('[Google Callback] Google returned error in query:', req.query.error);
             return res.redirect(`${redirectUri}?error=google_failed`);
         }
 
         passport.authenticate('google', { session: false }, (err, user, info) => {
             if (err) {
-                console.error('[Google Callback] Auth Error:', err.message);
+                console.error('============== [OAUTH FATAL ERROR] ==============');
+                console.error('[Google Callback] Auth Error Message:', err.message);
+                console.error('[Google Callback] Full Error Object:', err);
+                if (err.oauthError) {
+                    console.error('[Google Callback] OAuth specific error:', err.oauthError);
+                }
+                console.error('=================================================');
                 const errMsg = err.message || 'server_error';
                 return res.redirect(`${redirectUri}?error=${encodeURIComponent(errMsg)}`);
             }
             if (!user) {
+                console.error('[Google Callback] No user returned from strategy!');
                 return res.redirect(`${redirectUri}?error=no_user`);
             }
             req.user = user;
