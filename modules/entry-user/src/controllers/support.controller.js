@@ -194,14 +194,16 @@ export const submitBugReport = async (req, res, next) => {
             ${uploadedUrls.length > 0 ? uploadedUrls.map(url => `<img src="${url}" width="200" style="margin: 5px;"/>`).join('') : ''}
         `;
 
+        const devEmail = process.env.DEV_EMAIL || process.env.SMTP_USER || 'devanshjais20@gmail.com';
+
         console.log('⏳ [Nodemailer] Dispatching Bug Report over network...');
         transporter.sendMail({
-            from: `"STITCH Triage" <${process.env.SMTP_USER || process.env.EMAIL_USER || 'stitchapp.support@gmail.com'}>`,
-            to: 'devanshjais20@gmail.com',
+            from: `"Entry Club Triage" <${process.env.SMTP_USER}>`,
+            to: devEmail,
             subject: `🐞 BUG: ${description.substring(0, 40)}`,
             html
         })
-        .then(info => console.log('✅ [Nodemailer] Bug Report successfully sent! Message ID:', info.messageId))
+        .then(info => console.log('✅ [Nodemailer] Bug Report sent to', devEmail, '| ID:', info.messageId))
         .catch(e => console.error('❌ [Nodemailer] Dispatch Fail:', e.message));
 
         res.status(200).json({ success: true, message: 'Bug report dispatched to dev' });
@@ -229,14 +231,16 @@ export const submitSupportRequest = async (req, res, next) => {
             <p>${message}</p>
         `;
 
+        const supportEmail = process.env.SUPPORT_EMAIL || process.env.DEV_EMAIL || process.env.SMTP_USER || 'devanshjais20@gmail.com';
+
         console.log('⏳ [Nodemailer] Dispatching Support Ticket over network...');
         transporter.sendMail({
-            from: `"STITCH Support" <${process.env.SMTP_USER || process.env.EMAIL_USER || 'stitchapp.support@gmail.com'}>`,
-            to: 'devanshjais20@gmail.com',
-            subject: `🎫 Support Ticket: ${name}`,
+            from: `"Entry Club Support" <${process.env.SMTP_USER}>`,
+            to: supportEmail,
+            subject: `🎫 Support Ticket from ${name}`,
             html: html
         })
-        .then(info => console.log('✅ [Nodemailer] Support Email successfully sent! Message ID:', info.messageId))
+        .then(info => console.log('✅ [Nodemailer] Support Email sent to', supportEmail, '| ID:', info.messageId))
         .catch(e => console.error('❌ [Nodemailer][Support] Dispatch Fail:', e.message));
 
         res.status(200).json({ success: true, message: 'Support request sent to dev' });

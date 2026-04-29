@@ -68,8 +68,8 @@ router.get('/events/:eventId/my-booking', getEventBooking);
 
 // --- VENUES (Discovery) ---
 router.get('/venues', getAllVenues);
+router.get('/venues/host/:hostId', getVenueByHostId); // MUST be before /venues/:id
 router.get('/venues/:id', getVenueById);
-router.get('/venues/host/:hostId', getVenueByHostId);
 
 // --- HOST CATALOG (post-booking ordering) ---
 router.get('/host/:hostId/menu', getHostMenu);

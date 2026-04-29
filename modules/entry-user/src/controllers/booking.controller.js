@@ -26,7 +26,7 @@ export const getMyBookings = async (req, res, next) => {
         const [bookings, total] = await Promise.all([
             Booking.find(query)
                 .select('eventId status paymentStatus ticketType pricePaid createdAt')
-                .populate('eventId', 'title date coverImage startTime')
+                .populate('eventId', 'title date endDate coverImage startTime')
                 .sort({ createdAt: -1 })
                 .skip(skip)
                 .limit(limit)
@@ -60,7 +60,7 @@ export const getBookingById = async (req, res, next) => {
         // ⚡ Single query — lean() keeps hostId as string before populate
         const booking = await Booking.findById(id)
             .select('eventId hostId status paymentStatus ticketType tableId seatIds guests pricePaid checkInTime createdAt')
-            .populate('eventId', 'title date coverImage startTime venue')
+            .populate('eventId', 'title date endDate coverImage startTime venue')
             .lean();
 
         if (!booking) return res.status(404).json({ success: false, message: 'Booking not found' });
