@@ -33,15 +33,10 @@ export const getAllEvents = async (req, res, next) => {
                 startOfToday: startOfToday.toISOString()
             });
 
-            // First check total events in DB
-            const totalEventsInDB = await Event.countDocuments({});
-            const liveEvents = await Event.countDocuments({ status: 'LIVE' });
-            const futureEvents = await Event.countDocuments({ date: { $gte: startOfToday } });
-            
-            false && console.log('📊 [getAllEvents] Database stats:', {
-                totalEvents: totalEventsInDB,
-                liveEvents: liveEvents,
-                futureEvents: futureEvents
+            false && console.log('🔍 [getAllEvents] Fetching events with filters:', {
+                status: 'LIVE',
+                date: { $gte: startOfToday },
+                startOfToday: startOfToday.toISOString()
             });
 
             // ⚡ ULTRA OPTIMIZED: Minimal fields + lean() + limit
@@ -169,7 +164,7 @@ export const getEventBasic = async (req, res, next) => {
 
         // ⚡ ULTRA FAST: Populate hostId directly in one query
         const item = await Event.findById(id)
-            .select('title date endDate startTime endTime coverImage images status hostId hostModel locationVisibility isLocationRevealed locationData floorCount attendeeCount')
+            .select('title date endDate startTime endTime coverImage status hostId hostModel locationVisibility isLocationRevealed locationData floorCount attendeeCount')
             .populate({
                 path: 'hostId',
                 select: 'firstName lastName name profileImage',
@@ -484,8 +479,19 @@ export const bookEvent = async (req, res, next) => {
     try {
         const { eventId, ticketType, tableId, seatIds, guests, pricePaid } = req.body;
         
-        const event = await Event.findById(eventId).select('hostId title').lean();
+        const event = await Event.findById(eventId).select('hostId title status date').lean();
         if (!event) return res.status(404).json({ success: false, message: 'Event not found' });
+
+        // 🛡️ GATE: Prevent booking if event is PAUSED, ENDED, or past
+        if (event.status !== 'LIVE') {
+            return res.status(400).json({ success: false, message: `Event is currently ${event.status}. Bookings are closed.` });
+        }
+        
+        const eventEndOfDay = new Date(event.date);
+        eventEndOfDay.setHours(23, 59, 59, 999);
+        if (new Date() > eventEndOfDay) {
+            return res.status(400).json({ success: false, message: 'This event has already ended.' });
+        }
 
         // ⚡ ATOMIC: Verify lock ownership before booking
         if (seatIds && seatIds.length > 0) {
@@ -525,7 +531,12 @@ export const bookEvent = async (req, res, next) => {
             await Promise.all([
                 cacheService.delete(cacheService.formatKey('active_event', req.user.id)),
                 cacheService.delete(cacheService.formatKey('booking', req.user.id, eventId)),
-                cacheService.delete(cacheService.formatKey('my-bookings', req.user.id))
+                cacheService.delete(cacheService.formatKey('my-bookings', req.user.id)),
+                // Bust host's events cache so Manage Events screen shows updated stats
+                cacheService.delete(`host_events_${event.hostId.toString()}`),
+                // Bust host dashboard stats cache so Capacity Usage updates immediately
+                cacheService.delete(`dashboard_stats_${event.hostId.toString()}`),
+                cacheService.delete('admin_dashboard_stats'),
             ]);
         })().catch(e => false && console.error('[Event Sync Fail]', e.message));
 

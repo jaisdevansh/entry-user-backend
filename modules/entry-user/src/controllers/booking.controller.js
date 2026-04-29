@@ -109,9 +109,9 @@ export const getMyFoodOrders = async (req, res, next) => {
         };
         if (status) query.status = status;
 
-        // ⚡ OPTIMIZED: Fetch both FoodOrders and DrinkRequests up to required limit
+        // ⚡ OPTIMIZED: Fetch both finds and counts completely in parallel
         const effectiveLimit = skip + limit;
-        const [foodOrders, drinkRequests] = await Promise.all([
+        const [foodOrders, drinkRequests, foodCount, drinkCount] = await Promise.all([
             FoodOrder.find(query)
                 .select('eventId totalAmount createdAt status items type userId receiverId senderId')
                 .populate({ path: 'eventId', select: 'title' })
@@ -127,7 +127,9 @@ export const getMyFoodOrders = async (req, res, next) => {
                 .populate({ path: 'receiverId', select: 'name' })
                 .sort({ createdAt: -1 })
                 .limit(effectiveLimit)
-                .lean()
+                .lean(),
+            FoodOrder.countDocuments(query),
+            DrinkRequest.countDocuments(query)
         ]);
 
         // Add type: 'gift' to DrinkRequests so frontend gift labeling works
@@ -142,7 +144,7 @@ export const getMyFoodOrders = async (req, res, next) => {
             .slice(skip, skip + limit);
 
         // Approximate total
-        const total = await FoodOrder.countDocuments(query) + await DrinkRequest.countDocuments(query);
+        const total = foodCount + drinkCount;
 
         const result = {
             orders: allOrders,
