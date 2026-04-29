@@ -49,7 +49,7 @@ export const getAllEvents = async (req, res, next) => {
                 status: 'LIVE', 
                 date: { $gte: startOfToday } 
             })
-            .select('title date startTime coverImage attendeeCount locationVisibility locationData bookingOpenDate venueName hostModel tickets floors price revealTime') // Added tickets, floors, price and revealTime
+            .select('title date endDate startTime endTime coverImage attendeeCount locationVisibility isLocationRevealed locationData bookingOpenDate venueName hostModel tickets floors price revealTime')
             .populate({
                 path: 'hostId',
                 select: 'name profileImage businessName logo'
@@ -118,15 +118,16 @@ export const getAllEvents = async (req, res, next) => {
                     coverImage: e.coverImage,
                     displayPrice: minPrice !== undefined ? minPrice : null,
                     tickets: tickets,
-                    floors: floors, // Include floors array for frontend
-                    price: e.price, // Include fallback price
+                    floors: floors,
+                    price: e.price,
                     occupancy: `${occupancy}%`,
                     locationVisibility: e.locationVisibility,
+                    isLocationRevealed: e.isLocationRevealed || false,
                     locationData: e.locationData,
                     bookingOpenDate: e.bookingOpenDate,
                     revealTime: e.revealTime,
                     venueName: e.venueName,
-                    hostId: e.hostId // Don't override with fallback - let frontend handle it
+                    hostId: e.hostId
                 };
             });
         });
@@ -168,7 +169,7 @@ export const getEventBasic = async (req, res, next) => {
 
         // ⚡ ULTRA FAST: Populate hostId directly in one query
         const item = await Event.findById(id)
-            .select('title date startTime endTime coverImage images status hostId hostModel locationVisibility isLocationRevealed locationData floorCount attendeeCount')
+            .select('title date endDate startTime endTime coverImage images status hostId hostModel locationVisibility isLocationRevealed locationData floorCount attendeeCount')
             .populate({
                 path: 'hostId',
                 select: 'firstName lastName name profileImage',

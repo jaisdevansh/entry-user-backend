@@ -3,6 +3,60 @@ import { Message } from '../models/Message.js';
 import { User } from '../models/user.model.js';
 
 /**
+ * Delete a single message by its ID.
+ * Only the sender can delete their own message.
+ * Sets content to "This message was unsent" with a deleted flag.
+ */
+export const deleteMessage = async (req, res) => {
+    try {
+        const currentUserId = req.user.id;
+        const { messageId } = req.params;
+
+        const message = await Message.findById(messageId);
+        if (!message) {
+            return res.status(404).json({ success: false, message: 'Message not found' });
+        }
+
+        if (message.sender.toString() !== currentUserId) {
+            return res.status(403).json({ success: false, message: 'You can only unsend your own messages' });
+        }
+
+        // Soft-delete: mark as deleted so receiver also sees it removed
+        message.content = '🚫 This message was unsent';
+        message.isDeleted = true;
+        await message.save();
+
+        res.status(200).json({ success: true, message: 'Message unsent', data: { messageId } });
+    } catch (error) {
+        console.error('deleteMessage Error:', error);
+        res.status(500).json({ success: false, message: 'Server Error' });
+    }
+};
+
+/**
+ * Delete entire conversation between current user and a peer.
+ * Removes all messages from both directions.
+ */
+export const deleteConversation = async (req, res) => {
+    try {
+        const currentUserId = req.user.id;
+        const { peerId } = req.params;
+
+        await Message.deleteMany({
+            $or: [
+                { sender: currentUserId, receiver: peerId },
+                { sender: peerId, receiver: currentUserId }
+            ]
+        });
+
+        res.status(200).json({ success: true, message: 'Conversation deleted' });
+    } catch (error) {
+        console.error('deleteConversation Error:', error);
+        res.status(500).json({ success: false, message: 'Server Error' });
+    }
+};
+
+/**
  * Get chat history between current user and a peer.
  * Uses cursor-based or offset-based pagination.
  */

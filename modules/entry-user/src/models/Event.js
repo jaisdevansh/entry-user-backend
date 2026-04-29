@@ -24,6 +24,7 @@ const eventSchema = new mongoose.Schema({
     hostModel: { type: String, required: true, enum: ['User', 'Host'], default: 'Host' },
     title: { type: String, required: true },
     date: { type: Date, required: true },
+    endDate: { type: Date },
     startTime: { type: String, required: true },
     endTime: { type: String },
     description: { type: String },
