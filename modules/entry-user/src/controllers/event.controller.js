@@ -11,7 +11,41 @@ import { User } from '../models/user.model.js';
 import { Host } from '../models/Host.js';
 import { bookEventSchema } from '../validators/user.validator.js';
 
-
+const checkIsEventExpired = (event) => {
+    if (!event || !event.date) return false;
+    try {
+        const now = new Date();
+        const baseDate = event.endDate ? new Date(event.endDate) : new Date(event.date);
+        
+        if (event.endTime) {
+            const match = event.endTime.match(/(\d+):(\d+)\s*(AM|PM)?/i);
+            if (match) {
+                let hours = parseInt(match[1], 10);
+                const minutes = parseInt(match[2], 10);
+                const modifier = match[3] ? match[3].toUpperCase() : null;
+                
+                if (modifier === 'PM' && hours < 12) hours += 12;
+                if (modifier === 'AM' && hours === 12) hours = 0;
+                
+                let endTimestamp = new Date(baseDate);
+                endTimestamp.setHours(hours, minutes, 0, 0);
+                
+                if (hours <= 6 && !event.endDate) {
+                    endTimestamp.setDate(endTimestamp.getDate() + 1);
+                }
+                
+                return now > endTimestamp;
+            }
+        }
+        
+        const endOfEvent = new Date(baseDate);
+        endOfEvent.setDate(endOfEvent.getDate() + 1);
+        endOfEvent.setHours(6, 0, 0, 0);
+        return now > endOfEvent;
+    } catch(e) {
+        return false;
+    }
+};
 
 // --- GUEST DISCOVERY & BOOKING ACTIONS ---
 
@@ -65,7 +99,15 @@ export const getAllEvents = async (req, res, next) => {
             }
 
             // Calculate display price and occupancy
-            return results.map(e => {
+            const validResults = results.filter(e => {
+                if (checkIsEventExpired(e)) {
+                    Event.updateOne({ _id: e._id }, { status: 'EXPIRED' }).catch(() => {});
+                    return false;
+                }
+                return true;
+            });
+
+            return validResults.map(e => {
                 const tickets = e.tickets || [];
                 const floors = e.floors || [];
                 
@@ -173,6 +215,11 @@ export const getEventBasic = async (req, res, next) => {
             .lean();
             
         if (!item) return res.status(404).json({ success: false, message: 'Event not found' });
+
+        if (item.status === 'LIVE' && checkIsEventExpired(item)) {
+             item.status = 'EXPIRED';
+             Event.updateOne({ _id: item._id }, { status: 'EXPIRED' }).catch(() => {});
+        }
 
         // Format host name
         if (item.hostId) {
@@ -285,6 +332,11 @@ export const getEventFull = async (req, res, next) => {
 
         if (!event) {
             return res.status(404).json({ success: false, message: 'Event not found' });
+        }
+
+        if (event.status === 'LIVE' && checkIsEventExpired(event)) {
+             event.status = 'EXPIRED';
+             Event.updateOne({ _id: event._id }, { status: 'EXPIRED' }).catch(() => {});
         }
 
         // ⚡ STEP 3: Format host (single operation)
@@ -479,18 +531,17 @@ export const bookEvent = async (req, res, next) => {
     try {
         const { eventId, ticketType, tableId, seatIds, guests, pricePaid } = req.body;
         
-        const event = await Event.findById(eventId).select('hostId title status date').lean();
+        const event = await Event.findById(eventId).select('hostId title status date endDate startTime endTime').lean();
         if (!event) return res.status(404).json({ success: false, message: 'Event not found' });
+
+        if (checkIsEventExpired(event)) {
+            Event.updateOne({ _id: event._id }, { status: 'EXPIRED' }).catch(() => {});
+            return res.status(400).json({ success: false, message: 'This event has already ended.' });
+        }
 
         // 🛡️ GATE: Prevent booking if event is PAUSED, ENDED, or past
         if (event.status !== 'LIVE') {
             return res.status(400).json({ success: false, message: `Event is currently ${event.status}. Bookings are closed.` });
-        }
-        
-        const eventEndOfDay = new Date(event.date);
-        eventEndOfDay.setHours(23, 59, 59, 999);
-        if (new Date() > eventEndOfDay) {
-            return res.status(400).json({ success: false, message: 'This event has already ended.' });
         }
 
         // ⚡ ATOMIC: Verify lock ownership before booking
